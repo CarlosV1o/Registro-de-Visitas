@@ -12,6 +12,9 @@ import {
   LockKeyhole,
   LogOut,
   Plus,
+  Ellipsis,
+  Upload,
+  Printer,
   Search,
   SlidersHorizontal,
   UserCheck,
@@ -21,6 +24,9 @@ import {
 const props = defineProps<{ name: string }>();
 
 const icons = new Map([
+  ["upload", Upload],
+  ["more", Ellipsis],
+  ["print", Printer],
   ["check", Check],
   ["calendar", CalendarDays],
   ["arrow", ArrowRight],

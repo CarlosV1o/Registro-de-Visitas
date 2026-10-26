@@ -16,12 +16,23 @@
     "test:e2e:static": "node scripts/test-static.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@lucide/vue": "^1.61.0",
     "@supabase/supabase-js": "^2.118.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vueuse/core": "^15.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cn": "^0.5.0",
     "papaparse": "^5.7.0",
+    "reka-ui": "^2.11.0",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
     "vike": "^0.4.268",
     "vike-vue": "^0.9.16",
     "vue": "^3.5.44",
+    "write-excel-file": "^2.3.10",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -31,6 +42,7 @@
     "@types/papaparse": "^5.5.2",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/tsconfig": "^0.9.1",
+    "jszip": "^3.10.2",
     "oxlint": "^1.89.0",
     "typescript": "~6.0.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",

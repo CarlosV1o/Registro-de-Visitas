@@ -1,12 +1,64 @@
 <script setup lang="ts">
+import DataPagination from "@/components/DataPagination.vue";
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import AppNotice from "@/components/AppNotice.vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { z } from "zod";
 import { navigate } from "vike/client/router";
 import { getAttendance, getEmployees, getEvent } from "../lib/api";
-import { attendanceCsv, downloadCsv } from "../lib/csv";
-import { attendanceMetrics, attendanceByAdvisor } from "../lib/metrics";
+import { cache } from "../lib/cache";
+import { attendanceCsv, downloadCsv, makeCsv } from "../lib/csv";
+import { attendanceMetrics } from "../lib/metrics";
+import {
+  advisorSummary,
+  reportRows,
+  reportHeaders,
+  reportValues,
+  searchReport,
+  sortReport,
+  type ReportStatus,
+  type ReportSort,
+} from "../lib/reports";
+import { downloadWorkbook } from "../lib/workbook";
 import type { Attendance, AttendanceEvent, Employee } from "../lib/models";
 import { appLink, eventLink, reportLink } from "../lib/links";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import {
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuLink,
+} from "@/components/ui/navigation-menu";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableCaption,
+} from "@/components/ui/table";
 import AppIcon from "./AppIcon.vue";
 import EventSettings from "./EventSettings.vue";
 import CopyEventLink from "./CopyEventLink.vue";
@@ -19,17 +71,36 @@ const loading = ref(true);
 const exporting = ref(false);
 const error = ref("");
 const search = ref("");
+const moreFilters = ref(false);
+const advisorsOpen = ref(false);
 const advisor = ref<string | null>(null);
+const status = ref<ReportStatus>("attended");
+const region = ref<string | null>(null);
+const plaza = ref<string | null>(null);
+const sort = ref<ReportSort>("recent");
+const page = ref(1);
+const pageSize = ref(25);
 const synced = ref<Date | null>(null);
 let generation = 0;
 let inFlight = false;
 
 const metrics = computed(() => attendanceMetrics(employees.value, attendance.value));
-const ranking = computed(() => attendanceByAdvisor(attendance.value));
+const ranking = computed(() => advisorSummary(employees.value, attendance.value));
+const rows = computed(() => reportRows(employees.value, attendance.value));
+
+const regions = computed(() =>
+  [...new Set(rows.value.map((row) => row.region))].sort((a, b) => a.localeCompare(b, "es")),
+);
+
+const plazas = computed(() =>
+  [...new Set(rows.value.map((row) => row.plaza))].sort((a, b) => a.localeCompare(b, "es")),
+);
+
 const attendanceTable = ref<HTMLElement | null>(null);
 
 function filterAdvisor(name: string) {
   advisor.value = name;
+  status.value = "attended";
   search.value = "";
   attendanceTable.value?.scrollIntoView({
     behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
@@ -38,16 +109,78 @@ function filterAdvisor(name: string) {
 }
 
 const visible = computed(() =>
-  attendance.value
-    .filter(
-      (entry) =>
-        (advisor.value === null || entry.asesor.trim() === advisor.value) &&
-        `${entry.employee_id} ${entry.nombre}`
-          .toLocaleLowerCase("es")
-          .includes(search.value.trim().toLocaleLowerCase("es")),
-    )
-    .sort((a, b) => b.checked_in_at.localeCompare(a.checked_in_at)),
+  sortReport(
+    rows.value.filter(
+      (row) =>
+        (status.value === "all" ||
+          (status.value === "attended"
+            ? row.checked_in_at !== null
+            : row.checked_in_at === null)) &&
+        (advisor.value === null || row.asesor.trim() === advisor.value) &&
+        (region.value === null || row.region === region.value) &&
+        (plaza.value === null || row.plaza === plaza.value) &&
+        searchReport(row, search.value),
+    ),
+    sort.value,
+  ),
 );
+
+const pages = computed(() => Math.max(1, Math.ceil(visible.value.length / pageSize.value)));
+
+const pageRows = computed(() =>
+  visible.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value),
+);
+
+const hasFilters = computed(
+  () =>
+    search.value !== "" || advisor.value !== null || region.value !== null || plaza.value !== null,
+);
+
+watch([search, advisor, region, plaza, status, sort, pageSize], () => {
+  page.value = 1;
+});
+
+watch(pages, (value) => {
+  page.value = Math.min(page.value, value);
+});
+
+function resetFilters() {
+  search.value = "";
+  advisor.value = null;
+  region.value = null;
+  plaza.value = null;
+}
+
+function exportView() {
+  downloadCsv(
+    `vista_${props.eventId}.csv`,
+    makeCsv([reportHeaders, ...visible.value.map(reportValues)]),
+  );
+}
+
+function printReport() {
+  window.print();
+}
+
+async function exportExcel() {
+  if (!event.value || exporting.value) return;
+  exporting.value = true;
+  const request = generation;
+  // Capture one consistent snapshot before the asynchronous workbook import.
+  const selected = event.value;
+  const base = [...employees.value];
+  const records = [...attendance.value];
+  const selection = [...visible.value];
+
+  try {
+    await downloadWorkbook(selected, base, records, selection);
+  } catch {
+    if (request === generation)
+      error.value = "No se pudo generar el archivo Excel. Vuelve a intentarlo.";
+  } finally {
+    exporting.value = false;
+  }
+}
 
 async function load() {
   if (inFlight) return;
@@ -55,6 +188,17 @@ async function load() {
   const target = props.eventId;
   inFlight = true;
   loading.value = true;
+  // Show the last known data for this event immediately; the request below refreshes it.
+  const cachedEvent = cache.event(target);
+  const cachedAttendance = cache.attendance(target);
+  const cachedEmployees = cache.employees();
+
+  if (!event.value && cachedEvent && cachedAttendance && cachedEmployees) {
+    event.value = cachedEvent;
+    attendance.value = cachedAttendance;
+    employees.value = cachedEmployees;
+  }
+
   error.value = "";
 
   try {
@@ -65,6 +209,10 @@ async function load() {
       getAttendance(target),
       getEmployees(),
     ]);
+
+    cache.setEvent(target, selected);
+    cache.setAttendance(target, entries);
+    cache.setEmployees(employeeRows);
 
     if (request !== generation) return;
     event.value = selected;
@@ -109,8 +257,9 @@ watch(
     inFlight = false;
     event.value = null;
     attendance.value = [];
-    search.value = "";
-    advisor.value = null;
+    resetFilters();
+    status.value = "attended";
+    page.value = 1;
     employees.value = [];
     synced.value = null;
     void load();
@@ -128,41 +277,66 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <a :href="appLink('admin')" class="back-link"><AppIcon name="back" /> Todos los eventos</a>
-  <p v-if="error" class="notice error" role="alert">
-    {{ error }} <button :disabled="loading" @click="load">Volver a intentar</button>
-  </p>
-  <p v-if="loading && !event" class="empty-state" role="status">Cargando evento…</p>
-  <section v-else-if="!event" class="panel empty-events">
+  <Button variant="ghost" size="sm" as-child class="back-link"
+    ><a :href="appLink('admin')"><AppIcon name="back" /> Todos los eventos</a></Button
+  >
+  <AppNotice v-if="error" kind="error">
+    {{ error }}
+    <Button variant="outline" :disabled="loading" @click="load">Volver a intentar</Button>
+  </AppNotice>
+  <div
+    v-if="loading && !event"
+    class="workspace-skeleton"
+    role="status"
+    aria-label="Cargando evento"
+  >
+    <Skeleton class="h-8 w-64" /><Skeleton class="h-5 w-96 max-w-full" />
+    <div class="grid grid-cols-3 gap-4">
+      <Skeleton v-for="index in 3" :key="index" class="h-28" />
+    </div>
+    <Skeleton class="h-80" />
+  </div>
+  <Card v-else-if="!event" class="empty-events gap-0 rounded-xl border shadow-none ring-0 py-0">
     <h1>Evento no encontrado</h1>
     <p class="muted">Comprueba el enlace o regresa a tus eventos.</p>
-  </section>
+  </Card>
   <template v-else>
     <div class="page-heading event-page-heading">
       <div>
         <div class="event-title-row">
-          <span class="status-pill" :class="{ closed: !event.is_open }"
-            ><span />{{ event.is_open ? "Abierto" : "Cerrado" }}</span
-          >
+          <Badge :variant="event.is_open ? 'secondary' : 'outline'">{{
+            event.is_open ? "Abierto" : "Cerrado"
+          }}</Badge>
         </div>
         <h1>{{ event.title }}</h1>
-        <p class="muted">El registro y la asistencia de este evento.</p>
+        <p class="muted">Consulta los ingresos, identifica pendientes y prepara tus reportes.</p>
       </div>
       <div class="actions heading-actions">
-        <CopyEventLink :event-id="event.id" /><a :href="eventLink(event.id)" class="button primary"
-          >Abrir registro <AppIcon name="arrow"
-        /></a>
+        <CopyEventLink :event-id="event.id" /><Button as-child
+          ><a :href="eventLink(event.id)">Abrir registro <AppIcon name="arrow" /></a
+        ></Button>
       </div>
     </div>
-    <nav class="tabs" aria-label="Secciones del evento">
-      <a :href="reportLink(event.id)" :aria-current="!settings ? 'page' : undefined"
-        ><AppIcon name="users" /> Asistencia <span class="count">{{ attendance.length }}</span></a
-      ><a
-        :href="`${reportLink(event.id)}/configuracion`"
-        :aria-current="settings ? 'page' : undefined"
-        ><AppIcon name="settings" /> Configuración</a
-      >
-    </nav>
+    <NavigationMenu aria-label="Secciones del evento" class="event-navigation" :viewport="false"
+      ><NavigationMenuList
+        ><NavigationMenuItem
+          ><NavigationMenuLink class="flex-row items-center gap-2" as-child :active="!settings"
+            ><a :href="reportLink(event.id)" :aria-current="!settings ? 'page' : undefined"
+              ><AppIcon name="users" /> Asistencia
+              <Badge variant="secondary">{{ attendance.length }}</Badge></a
+            ></NavigationMenuLink
+          ></NavigationMenuItem
+        ><NavigationMenuItem
+          ><NavigationMenuLink class="flex-row items-center gap-2" as-child :active="settings"
+            ><a
+              :href="`${reportLink(event.id)}/configuracion`"
+              :aria-current="settings ? 'page' : undefined"
+              ><AppIcon name="settings" /> Configuración</a
+            ></NavigationMenuLink
+          ></NavigationMenuItem
+        ></NavigationMenuList
+      ></NavigationMenu
+    >
     <EventSettings
       v-if="settings"
       :event="event"
@@ -171,12 +345,12 @@ onUnmounted(() => {
     />
     <template v-else>
       <dl class="event-metrics" aria-label="Resumen del evento">
-        <div class="metric-card">
+        <Card class="metric-card gap-0 rounded-xl border shadow-none ring-0">
           <dt><AppIcon name="users" /> Empleados activos</dt>
           <dd>{{ metrics.total }}</dd>
           <p class="small muted">Base de empleados</p>
-        </div>
-        <div class="metric-card metric-attended">
+        </Card>
+        <Card class="metric-card metric-attended gap-0 rounded-xl border shadow-none ring-0">
           <dt><AppIcon name="attended" /> Asistencias registradas</dt>
           <dd>{{ metrics.registered }}</dd>
           <p class="small muted">
@@ -186,12 +360,17 @@ onUnmounted(() => {
                 : "Sin empleados activos en la base"
             }}
           </p>
-        </div>
-        <div class="metric-card">
+          <Progress
+            :model-value="metrics.percent"
+            class="metric-progress"
+            aria-label="Porcentaje de asistencia"
+          />
+        </Card>
+        <Card class="metric-card gap-0 rounded-xl border shadow-none ring-0">
           <dt><AppIcon name="pending" /> Pendientes</dt>
           <dd>{{ metrics.pending }}</dd>
           <p class="small muted">Empleados activos sin registro</p>
-        </div>
+        </Card>
       </dl>
       <div class="report-sync">
         <span>{{
@@ -201,117 +380,330 @@ onUnmounted(() => {
               ? `Actualizado a las ${synced.toLocaleTimeString("es-MX", { timeStyle: "short" })}`
               : "Sin actualizar"
         }}</span
-        ><button :disabled="loading" @click="load">Actualizar</button>
+        ><Button variant="outline" :disabled="loading" @click="load">Actualizar</Button>
       </div>
-      <details v-if="ranking.length" class="panel advisor-panel" :open="ranking.length <= 5">
-        <summary>
-          <AppIcon name="chart" /> Asistencia por asesor
-          <span class="count">{{ ranking.length }}</span
-          ><AppIcon name="chevron" class="details-chevron" />
-        </summary>
-        <p class="small muted">Selecciona un asesor para filtrar sus registros.</p>
-        <ol class="advisor-ranking">
-          <li v-for="(group, index) in ranking" :key="group.name">
-            <button :aria-pressed="advisor === group.name" @click="filterAdvisor(group.name)">
-              <span class="advisor-position">{{ index + 1 }}</span
-              ><span class="advisor-name">{{ group.name || "Sin asesor" }}</span
-              ><strong
-                >{{ group.count }} {{ group.count === 1 ? "asistencia" : "asistencias" }}</strong
-              ><AppIcon name="arrow" />
-            </button>
-          </li>
-        </ol>
-      </details>
-      <section
+      <Card
         ref="attendanceTable"
-        class="panel attendance-panel"
+        class="attendance-panel gap-0 rounded-xl border shadow-none ring-0 py-0"
         aria-labelledby="attendance-title"
       >
         <div class="section-heading">
           <div>
             <h2 id="attendance-title">Lista de asistencia</h2>
-            <p class="muted small">Los registros pertenecen únicamente a este evento.</p>
+            <p class="muted small">
+              Los registros pertenecen únicamente a este evento. Horarios en
+              {{ Intl.DateTimeFormat().resolvedOptions().timeZone }}.
+            </p>
           </div>
-          <button :disabled="exporting || loading" @click="exportCsv">
-            <AppIcon name="download" />{{ exporting ? "Descargando…" : "Descargar CSV" }}
-          </button>
-        </div>
-        <div class="filters">
-          <div class="search-field">
-            <AppIcon name="search" /><input
-              v-model="search"
-              aria-label="Buscar empleado"
-              type="search"
-              placeholder="Buscar por número o nombre"
-            />
+          <div class="report-actions">
+            <Button :disabled="exporting || !synced" @click="exportExcel"
+              ><AppIcon name="download" />{{ exporting ? "Exportando…" : "Exportar Excel" }}</Button
+            ><DropdownMenu
+              ><DropdownMenuTrigger as-child
+                ><Button variant="outline" :disabled="!synced" aria-label="Más opciones de reporte"
+                  ><AppIcon name="more" /></Button></DropdownMenuTrigger
+              ><DropdownMenuContent align="end"
+                ><DropdownMenuItem :disabled="exporting" @select="exportCsv"
+                  ><AppIcon name="download" /> Descargar CSV completo</DropdownMenuItem
+                ><DropdownMenuItem :disabled="!visible.length" @select="exportView"
+                  ><AppIcon name="download" /> Descargar vista CSV</DropdownMenuItem
+                ><DropdownMenuSeparator /><DropdownMenuItem @select="printReport"
+                  ><AppIcon name="print" /> Imprimir vista</DropdownMenuItem
+                ></DropdownMenuContent
+              ></DropdownMenu
+            >
           </div>
-          <select v-model="advisor" aria-label="Filtrar por asesor">
-            <option :value="null">Todos los asesores</option>
-            <option v-for="group in ranking" :key="group.name" :value="group.name">
-              {{ group.name || "Sin asesor" }}
-            </option>
-          </select>
         </div>
-        <div v-if="advisor !== null" class="active-filter">
-          <span
-            >Asesor: <strong>{{ advisor || "Sin asesor" }}</strong></span
-          ><button @click="advisor = null">Quitar filtro</button>
-        </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nombre completo</th>
-                <th>Tienda</th>
-                <th>Plaza</th>
-                <th>Región</th>
-                <th>Asesor</th>
-                <th>Posición</th>
-                <th>Hora de ingreso</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="entry in visible" :key="entry.employee_id">
-                <td class="id-cell">{{ entry.employee_id }}</td>
-                <td class="employee-name">{{ entry.nombre }}</td>
-                <td>{{ entry.tienda }}</td>
-                <td>{{ entry.plaza }}</td>
-                <td>{{ entry.region }}</td>
-                <td>{{ entry.asesor }}</td>
-                <td>{{ entry.posicion }}</td>
-                <td class="time-cell">
-                  {{
-                    new Date(entry.checked_in_at).toLocaleString("es-MX", {
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    })
-                  }}
-                </td>
-              </tr>
-              <tr v-if="!visible.length">
-                <td colspan="8" class="empty-state">
-                  <span class="empty-table-icon"><AppIcon name="users" /></span
-                  ><strong>{{
-                    attendance.length ? "Sin resultados" : "Aún no hay asistencias"
-                  }}</strong>
-                  <p>
-                    {{
-                      attendance.length
-                        ? "Prueba con otro nombre o asesor."
-                        : "Comparte el enlace de registro. Las asistencias aparecerán aquí."
-                    }}
-                  </p>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="table-caption">
-          {{ visible.length }} de {{ attendance.length }} registros. La descarga incluye toda la
-          asistencia del evento.
-        </p>
-      </section>
+        <Tabs
+          :model-value="status"
+          @update:model-value="
+            (value) => {
+              if (value === 'all' || value === 'pending' || value === 'attended') status = value;
+            }
+          "
+          class="report-tabs-root"
+          ><div class="report-tabs">
+            <TabsList
+              ><TabsTrigger value="attended"
+                >Asistencias
+                <Badge variant="secondary">{{ metrics.registered }}</Badge></TabsTrigger
+              ><TabsTrigger value="pending"
+                >Pendientes <Badge variant="secondary">{{ metrics.pending }}</Badge></TabsTrigger
+              ><TabsTrigger value="all"
+                >Todos <Badge variant="secondary">{{ rows.length }}</Badge></TabsTrigger
+              ></TabsList
+            >
+          </div>
+          <TabsContent :value="status" class="report-tab-content">
+            <div class="filters report-filters">
+              <InputGroup class="search-field"
+                ><InputGroupAddon><AppIcon name="search" /></InputGroupAddon
+                ><InputGroupInput
+                  v-model="search"
+                  aria-label="Buscar empleado"
+                  type="search"
+                  placeholder="Buscar empleado, tienda, posición…"
+              /></InputGroup>
+              <Select
+                :model-value="advisor === null ? 'all' : 'value:' + advisor"
+                @update:model-value="
+                  (value) => {
+                    advisor = value === 'all' ? null : String(value).slice(6);
+                  }
+                "
+                ><SelectTrigger aria-label="Filtrar por asesor"><SelectValue /></SelectTrigger
+                ><SelectContent
+                  ><SelectItem value="all">Todos los asesores</SelectItem
+                  ><SelectItem
+                    v-for="group in ranking"
+                    :key="group.name"
+                    :value="'value:' + group.name"
+                    >{{ group.name || "Sin asesor" }}</SelectItem
+                  ></SelectContent
+                ></Select
+              >
+              <Button
+                variant="outline"
+                :aria-expanded="moreFilters"
+                @click="moreFilters = !moreFilters"
+                ><AppIcon name="settings" /> Filtros<span
+                  v-if="region !== null || plaza !== null"
+                  class="filter-indicator"
+              /></Button>
+            </div>
+            <Collapsible v-model:open="moreFilters"
+              ><CollapsibleContent class="extra-filters">
+                <Select
+                  :model-value="region === null ? 'all' : 'value:' + region"
+                  @update:model-value="
+                    (value) => {
+                      region = value === 'all' ? null : String(value).slice(6);
+                    }
+                  "
+                  ><SelectTrigger aria-label="Filtrar por región"><SelectValue /></SelectTrigger
+                  ><SelectContent
+                    ><SelectItem value="all">Todas las regiones</SelectItem
+                    ><SelectItem v-for="name in regions" :key="name" :value="'value:' + name">{{
+                      name || "Sin región"
+                    }}</SelectItem></SelectContent
+                  ></Select
+                >
+                <Select
+                  :model-value="plaza === null ? 'all' : 'value:' + plaza"
+                  @update:model-value="
+                    (value) => {
+                      plaza = value === 'all' ? null : String(value).slice(6);
+                    }
+                  "
+                  ><SelectTrigger aria-label="Filtrar por plaza"><SelectValue /></SelectTrigger
+                  ><SelectContent
+                    ><SelectItem value="all">Todas las plazas</SelectItem
+                    ><SelectItem v-for="name in plazas" :key="name" :value="'value:' + name">{{
+                      name || "Sin plaza"
+                    }}</SelectItem></SelectContent
+                  ></Select
+                >
+                <Select
+                  :model-value="sort"
+                  @update:model-value="
+                    (value) => {
+                      if (value === 'recent' || value === 'name' || value === 'id') sort = value;
+                    }
+                  "
+                  ><SelectTrigger aria-label="Ordenar registros"><SelectValue /></SelectTrigger
+                  ><SelectContent
+                    ><SelectItem value="recent">Más recientes</SelectItem
+                    ><SelectItem value="name">Nombre A–Z</SelectItem
+                    ><SelectItem value="id">Número de empleado</SelectItem></SelectContent
+                  ></Select
+                ></CollapsibleContent
+              ></Collapsible
+            >
+            <div v-if="hasFilters" class="active-filter">
+              <span
+                >{{ visible.length }} resultados<span v-if="advisor !== null">
+                  · Asesor: <strong>{{ advisor || "Sin asesor" }}</strong></span
+                ></span
+              ><Button variant="outline" @click="resetFilters">Quitar filtro</Button>
+            </div>
+            <div class="table-scroll">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Nombre completo</TableHead>
+                    <TableHead>Tienda</TableHead>
+                    <TableHead>Plaza</TableHead>
+                    <TableHead>Región</TableHead>
+                    <TableHead>Asesor</TableHead>
+                    <TableHead>Posición</TableHead>
+                    <TableHead>Hora de ingreso</TableHead>
+                    <TableHead>Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="entry in pageRows" :key="entry.id">
+                    <TableCell class="id-cell">{{ entry.id }}</TableCell>
+                    <TableCell class="employee-name">{{ entry.nombre }}</TableCell>
+                    <TableCell>{{ entry.tienda }}</TableCell>
+                    <TableCell>{{ entry.plaza }}</TableCell>
+                    <TableCell>{{ entry.region }}</TableCell>
+                    <TableCell>{{ entry.asesor }}</TableCell>
+                    <TableCell>{{ entry.posicion }}</TableCell>
+                    <TableCell class="time-cell">
+                      {{
+                        entry.checked_in_at
+                          ? new Date(entry.checked_in_at).toLocaleString("es-MX", {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            })
+                          : "—"
+                      }}
+                    </TableCell>
+                    <TableCell>
+                      <Badge :variant="entry.checked_in_at ? 'secondary' : 'outline'">{{
+                        entry.checked_in_at ? "Asistió" : "Pendiente"
+                      }}</Badge>
+                    </TableCell>
+                  </TableRow>
+                  <TableRow v-if="!visible.length">
+                    <TableCell colspan="9" class="empty-state">
+                      <span class="empty-table-icon"><AppIcon name="users" /></span
+                      ><strong>{{
+                        hasFilters
+                          ? "Sin resultados"
+                          : status === "pending"
+                            ? "No hay empleados pendientes"
+                            : status === "all"
+                              ? "No hay empleados"
+                              : "Aún no hay asistencias"
+                      }}</strong>
+                      <p>
+                        {{
+                          hasFilters
+                            ? "Prueba con otros filtros."
+                            : status === "pending"
+                              ? "Todos los empleados activos tienen asistencia registrada."
+                              : "Comparte el enlace de registro. Las asistencias aparecerán aquí."
+                        }}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+            <div class="table-pagination">
+              <span
+                >{{ visible.length }} registros<span v-if="visible.length">
+                  · {{ (page - 1) * pageSize + 1 }}–{{
+                    Math.min(page * pageSize, visible.length)
+                  }}</span
+                ></span
+              >
+              <div>
+                <Label class="mb-2 block" for="report-page-size">Filas</Label
+                ><Select
+                  :model-value="String(pageSize)"
+                  @update:model-value="
+                    (value) => {
+                      pageSize = Number(value);
+                    }
+                  "
+                  ><SelectTrigger id="report-page-size" aria-label="Filas por página"
+                    ><SelectValue /></SelectTrigger
+                  ><SelectContent
+                    ><SelectItem value="25">25</SelectItem><SelectItem value="50">50</SelectItem
+                    ><SelectItem value="100">100</SelectItem></SelectContent
+                  ></Select
+                ><DataPagination
+                  v-model:page="page"
+                  :total="visible.length"
+                  :page-size="pageSize"
+                />
+              </div>
+            </div>
+            <p class="small muted report-footnote">
+              Los pendientes se calculan con la base activa actual; los datos de asistentes
+              conservan la información del momento de registro.
+            </p>
+            <p class="print-meta">
+              {{ event.title }} ·
+              {{
+                status === "pending"
+                  ? "Pendientes"
+                  : status === "attended"
+                    ? "Asistencias"
+                    : "Todos los empleados"
+              }}
+              · {{ visible.length }} registros<br />{{ synced?.toLocaleString("es-MX")
+              }}<span v-if="search"> · Búsqueda: {{ search }}</span
+              ><span v-if="advisor !== null"> · Asesor: {{ advisor || "Sin asesor" }}</span
+              ><span v-if="region !== null"> · Región: {{ region || "Sin región" }}</span
+              ><span v-if="plaza !== null"> · Plaza: {{ plaza || "Sin plaza" }}</span
+              ><br />Hora_Registro: ISO 8601 con zona horaria.
+            </p>
+            <table class="print-table">
+              <thead>
+                <tr>
+                  <th v-for="header in reportHeaders" :key="header">{{ header }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in visible" :key="row.id">
+                  <td v-for="(cell, index) in reportValues(row)" :key="index">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table></TabsContent
+          ></Tabs
+        >
+      </Card>
+      <Card
+        v-if="attendance.length"
+        class="advisor-panel gap-0 rounded-xl border shadow-none ring-0 p-5"
+        ><Collapsible v-model:open="advisorsOpen">
+          <CollapsibleTrigger as-child
+            ><Button variant="ghost" class="advisor-toggle">
+              <AppIcon name="chart" /> Asistencia por asesor
+              <Badge variant="secondary">{{ ranking.length }}</Badge
+              ><AppIcon name="chevron" class="details-chevron" /> </Button></CollapsibleTrigger
+          ><CollapsibleContent>
+            <p class="small muted">Selecciona un asesor para filtrar sus registros.</p>
+            <div class="table-scroll advisor-summary">
+              <Table>
+                <TableCaption class="small muted">
+                  Cobertura de la base activa actual por asesor. Las asistencias conservan el asesor
+                  al registrarse.
+                </TableCaption>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Asesor</TableHead>
+                    <TableHead>Base activa</TableHead>
+                    <TableHead>Asistencias</TableHead>
+                    <TableHead>Pendientes</TableHead>
+                    <TableHead>Avance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="group in ranking" :key="group.name">
+                    <TableCell>
+                      <Button
+                        variant="link"
+                        :aria-label="`${group.name || 'Sin asesor'} ${group.count} ${group.count === 1 ? 'asistencia' : 'asistencias'}`"
+                        @click="filterAdvisor(group.name)"
+                        >{{ group.name || "Sin asesor" }}</Button
+                      >
+                    </TableCell>
+                    <TableCell>{{ group.total }}</TableCell>
+                    <TableCell>{{ group.count }}</TableCell>
+                    <TableCell>{{ group.pending }}</TableCell>
+                    <TableCell>{{ group.percent }}%</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </CollapsibleContent></Collapsible
+        ></Card
+      >
     </template>
   </template>
 </template>

@@ -8,14 +8,14 @@ Herramienta interna en español con Vue 3, Vike, TypeScript, Vite+ y Supabase. C
 | ---------------------------------- | ---------------- | -------------------------------------------------------------- |
 | `/`                                | Inicio de sesión | Acceso de administradores y enlaces de invitación/recuperación |
 | `/admin`                           | Administrador    | Crear eventos, copiar enlaces y abrir informes                 |
-| `/admin/empleados`                 | Administrador    | Importar y exportar la base de empleados                       |
+| `/admin/empleados`                 | Administrador    | Buscar, filtrar, importar y exportar empleados                 |
 | `/eventos/:id`                     | Público          | Registrar asistencia con número de empleado                    |
 | `/admin/eventos/:id`               | Administrador    | Consultar y exportar la asistencia de ese evento               |
 | `/admin/eventos/:id/configuracion` | Administrador    | Cambiar nombre, cerrar, reabrir o eliminar el evento           |
 
 El identificador UUID del enlace determina el evento. Un enlace inválido muestra un error y nunca selecciona otro evento. Cada registro y exportación usa el identificador de la ruta. El enlace permanece igual cuando se cambia el nombre del evento.
 
-El informe incluye empleados activos, asistencias, pendientes y porcentaje de la base activa registrada. Los pendientes se calculan por ID: la asistencia histórica de empleados inactivos no reduce ese número. El desglose por asesor se ordena de mayor a menor y permite filtrar la lista, incluidos los registros sin asesor. Los iconos usan Lucide (`@lucide/vue`).
+El informe incluye empleados activos, asistencias, pendientes y porcentaje de la base activa registrada. Los pendientes se calculan por ID: la asistencia histórica de empleados inactivos no reduce ese número. El desglose por asesor se ordena de mayor a menor y permite filtrar la lista, incluidos los registros sin asesor. Los controles usan shadcn-vue con el preset `axPhMWG` (Reka Luma, mauve, Inter) y Lucide (`@lucide/vue`). El layout administrativo conserva la navegación y la sesión entre páginas.
 
 La base de empleados es compartida entre eventos. La asistencia se guarda por evento con una copia de los datos del empleado al registrarse, de modo que las importaciones posteriores no cambian el historial. Un empleado puede registrarse en varios eventos, una sola vez en cada uno.
 
@@ -46,7 +46,7 @@ on conflict (user_id) do update set role = excluded.role;
 
 5. Inicia sesión, importa la base de empleados y crea un evento. Copia el enlace del evento para compartir su registro.
 
-Las políticas de Postgres protegen los empleados, la administración y los informes. Las cuentas sin rol de administrador, incluidas las antiguas cuentas `staff`, no pueden leer esos datos. El acceso público solo permite consultar el título y estado de un evento por UUID, y registrar un número de empleado exacto. No ofrece búsquedas de empleados, directorio de eventos ni listas de asistencia. La respuesta pública es un recibo con nombre y hora; los demás detalles permanecen privados.
+Las políticas de Postgres protegen los empleados, la administración y los informes. Las cuentas sin rol de administrador, incluidas las antiguas cuentas `staff`, no pueden leer esos datos. El acceso público solo permite consultar el título y estado de un evento por UUID, y registrar un número de empleado exacto. No ofrece búsquedas de empleados, directorio de eventos ni listas de asistencia. La respuesta pública es siempre un recibo genérico: no revela nombres, horarios, existencia del ID ni registros previos. El organizador confirma el resultado desde su informe privado. La migración `202610260004_public_protection.sql` agrega límites de solicitudes e importaciones; consulta [SECURITY.md](SECURITY.md) antes de desplegar.
 
 Una función privada realiza la escritura con bloqueo del evento y una clave única por evento y empleado. La hora y los datos provienen del servidor. Cerrar un evento conserva el historial y rechaza nuevos registros. Eliminarlo requiere confirmación y borra su asistencia en una transacción protegida por permisos de administrador, sin modificar otros eventos ni la base de empleados. Las sesiones administrativas se guardan en `sessionStorage`: sobreviven a la recarga de la página en la misma pestaña. Cerrar la pestaña o cerrar sesión elimina el acceso guardado.
 
@@ -55,6 +55,10 @@ Una función privada realiza la escritura con bloqueo del evento y una clave ún
 La base de empleados conserva el orden `ID, Nombre, Tienda, Plaza, Región, Asesor, Posición`. `Activo` es opcional. Los IDs son texto y conservan sus ceros iniciales; configura esa columna como texto al abrir el CSV. Se valida todo el archivo antes de guardarlo. Los empleados ausentes del archivo no se eliminan.
 
 La exportación conserva `ID_Empleado, Nombre, Tienda, Plaza, Región, Asesor, Posición, Hora_Registro`. Incluye toda la asistencia del evento de la URL, incluso con filtros activos, con fecha ISO y zona horaria. Los datos importados se muestran como texto.
+
+La vista permite consultar asistencias, pendientes o ambos, buscar en todas las columnas y filtrar por asesor, región y plaza. Incluye orden y paginación. «Más opciones de reporte» permite descargar el CSV completo, el CSV de la vista filtrada o imprimir todos los resultados filtrados (no solo la página actual).
+
+«Exportar Excel» genera un archivo `.xlsx` con cinco hojas: Resumen, Vista filtrada, Asistencia completa, Pendientes y Por asesor. Los IDs y los campos de empleados se escriben como texto. Hora_Registro conserva la fecha ISO y su zona horaria; la interfaz muestra la hora local. La exportación Excel usa la última actualización correcta que muestra la pantalla. Los pendientes y la cobertura por asesor se calculan con la base activa actual; las asistencias conservan los datos al registrarse.
 
 ## Verificación
 

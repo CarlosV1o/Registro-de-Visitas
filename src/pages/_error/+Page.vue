@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Button } from "@/components/ui/button";
 import { onMounted, ref } from "vue";
 import { navigate } from "vike/client/router";
 import { appLink } from "../../lib/links";
@@ -32,6 +33,6 @@ onMounted(async () => {
     <BrandMark />
     <h1>Página no encontrada</h1>
     <p class="muted">Revisa el enlace de tu evento.</p>
-    <a :href="appLink()" class="button primary">Ir al inicio</a>
+    <Button as-child><a :href="appLink()">Ir al inicio</a></Button>
   </main>
 </template>

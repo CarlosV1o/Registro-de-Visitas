@@ -1,12 +1,22 @@
 <script setup lang="ts">
+import AppNotice from "@/components/AppNotice.vue";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 import { ref } from "vue";
-import { parseEmployees, employeeCsv, downloadCsv, makeCsv, employeeHeaders } from "../lib/csv";
+import AppIcon from "./AppIcon.vue";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { parseEmployees, downloadCsv, makeCsv, employeeHeaders } from "../lib/csv";
 import { importEmployees } from "../lib/api";
 import type { Employee } from "../lib/models";
 
 const emit = defineEmits<{ imported: [] }>();
-
-defineProps<{ employees: Employee[] }>();
 
 const pending = ref<Employee[]>([]);
 const filename = ref("");
@@ -55,43 +65,47 @@ async function save() {
 </script>
 
 <template>
-  <section class="panel" aria-labelledby="import-title">
-    <div class="section-heading">
-      <div>
-        <h2 id="import-title">Base de empleados</h2>
-        <p class="muted">{{ employees.length }} registros en la base</p>
-      </div>
-      <button @click="downloadCsv('empleados.csv', employeeCsv(employees))">
-        Exportar empleados
-      </button>
+  <section class="employee-import-flow" aria-label="Archivo de empleados">
+    <div class="import-upload">
+      <span class="import-upload-icon"><AppIcon name="upload" /></span>
+      <h3>Selecciona tu archivo CSV</h3>
+      <p>CSV UTF-8 · Máximo 10 MB y 10,000 empleados</p>
+      <input
+        ref="input"
+        class="hidden-file-input"
+        type="file"
+        accept=".csv,text/csv"
+        aria-label="Archivo CSV de empleados"
+        :disabled="busy"
+        @change="selectFile"
+      /><Button type="button" :disabled="busy" @click="input?.click()"
+        ><AppIcon name="plus" />{{ pending.length ? "Cambiar archivo" : "Elegir CSV" }}</Button
+      >
     </div>
-    <p>
-      Descarga tu hoja <strong>Base</strong> como CSV UTF-8. Conserva las columnas ID, Nombre,
-      Tienda, Plaza, Región, Asesor y Posición.
-    </p>
-    <details class="import-help">
-      <summary>Requisitos del archivo</summary>
-      <p class="small muted">
-        ID y Nombre son obligatorios. Los detalles omitidos se guardan vacíos. Los IDs conservan sus
-        ceros iniciales. La columna opcional Activo (sí/no) permite desactivar empleados; omitirla
-        los activa. Los empleados ausentes del archivo no se eliminan.
-      </p>
-    </details>
-    <div class="actions">
-      <label class="button primary file-button"
-        >Elegir CSV<input
-          ref="input"
-          type="file"
-          accept=".csv,text/csv"
-          :disabled="busy"
-          @change="selectFile"
-      /></label>
-      <button @click="downloadCsv('plantilla-empleados.csv', makeCsv([employeeHeaders]))">
-        Descargar plantilla
-      </button>
+    <div class="import-template">
+      <span class="small muted">¿Primera importación?</span
+      ><Button
+        variant="link"
+        type="button"
+        @click="downloadCsv('plantilla-empleados.csv', makeCsv([employeeHeaders]))"
+        >Descargar plantilla CSV</Button
+      >
     </div>
-    <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-    <p v-if="message" class="notice success" role="status">{{ message }}</p>
+    <Collapsible class="import-help"
+      ><CollapsibleTrigger as-child
+        ><Button variant="ghost" class="import-help-trigger"
+          >Columnas y requisitos <AppIcon name="chevron" /></Button></CollapsibleTrigger
+      ><CollapsibleContent>
+        <p class="small muted">
+          Conserva el orden: ID, Nombre, Tienda, Plaza, Región, Asesor y Posición. ID y Nombre son
+          obligatorios. Los IDs conservan sus ceros iniciales. La columna opcional Activo acepta
+          sí/no. Omitirla activa los empleados del archivo. Los empleados ausentes del archivo no se
+          eliminan.
+        </p>
+      </CollapsibleContent></Collapsible
+    >
+    <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
+    <AppNotice v-if="message" kind="success">{{ message }}</AppNotice>
     <div v-if="pending.length" class="import-preview">
       <h3>{{ filename }}</h3>
       <p>
@@ -99,31 +113,31 @@ async function save() {
         {{ Math.min(pending.length, 5) }} filas antes de confirmar.
       </p>
       <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Nombre</th>
-              <th>Tienda</th>
-              <th>Asesor</th>
-              <th>Activo</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="employee in pending.slice(0, 5)" :key="employee.id">
-              <td>{{ employee.id }}</td>
-              <td>{{ employee.nombre }}</td>
-              <td>{{ employee.tienda || "Sin tienda" }}</td>
-              <td>{{ employee.asesor || "Sin asesor" }}</td>
-              <td>{{ employee.active ? "Sí" : "No" }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>ID</TableHead>
+              <TableHead>Nombre</TableHead>
+              <TableHead>Tienda</TableHead>
+              <TableHead>Asesor</TableHead>
+              <TableHead>Activo</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="employee in pending.slice(0, 5)" :key="employee.id">
+              <TableCell>{{ employee.id }}</TableCell>
+              <TableCell>{{ employee.nombre }}</TableCell>
+              <TableCell>{{ employee.tienda || "Sin tienda" }}</TableCell>
+              <TableCell>{{ employee.asesor || "Sin asesor" }}</TableCell>
+              <TableCell>{{ employee.active ? "Sí" : "No" }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </div>
       <div class="actions">
-        <button class="primary" :disabled="busy" @click="save">
-          {{ busy ? "Importando…" : `Confirmar ${pending.length} empleados` }}</button
-        ><button :disabled="busy" @click="pending = []">Cancelar</button>
+        <Button variant="default" :disabled="busy" @click="save">
+          {{ busy ? "Importando…" : `Confirmar ${pending.length} empleados` }}</Button
+        ><Button variant="outline" :disabled="busy" @click="pending = []">Cancelar</Button>
       </div>
     </div>
   </section>

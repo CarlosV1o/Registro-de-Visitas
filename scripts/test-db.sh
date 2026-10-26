@@ -28,12 +28,16 @@ psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-db.sql
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260002_event_links.sql
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260003_delete_event.sql
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-event-links.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260004_public_protection.sql
+psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-security.sql
 
 # Both callers must observe the same row, with exactly one insert winning.
 for caller in 1 2; do
   psql -X -v ON_ERROR_STOP=1 -qAt >"$test_cluster/checkin-$caller" <<'SQL' &
 set role anon;
-select public.register_attendance('11111111-1111-4111-8111-111111111111', '004509')->>'created';
+set request.method = 'POST';
+set request.headers = '{"x-forwarded-for":"203.0.113.200"}';
+select public.register_attendance('11111111-1111-4111-8111-111111111111', '004509')->>'accepted';
 SQL
 done
 wait
@@ -42,8 +46,8 @@ do $$ begin
   if (select count(*) from public.attendance where event_id = '11111111-1111-4111-8111-111111111111') <> 1 then raise exception 'Concurrent check-ins created duplicates'; end if;
 end $$;
 SQL
-if [[ $(cat "$test_cluster/checkin-1" "$test_cluster/checkin-2" | sort | tr '\n' ' ') != 'false true ' ]]; then
-  echo 'Expected one new check-in and one duplicate response' >&2
+if [[ $(cat "$test_cluster/checkin-1" "$test_cluster/checkin-2" | sort | tr '\n' ' ') != 'true true ' ]]; then
+  echo 'Expected indistinguishable receipts for concurrent check-ins' >&2
   exit 1
 fi
 echo 'Database authorization, atomic import and concurrent check-ins passed.'

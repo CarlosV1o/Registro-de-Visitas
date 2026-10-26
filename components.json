@@ -1,0 +1,19 @@
+{
+  "$schema": "https://www.shadcn-vue.com/schema.json",
+  "style": "reka-luma",
+  "typescript": true,
+  "tailwind": {
+    "config": "",
+    "css": "src/style.css",
+    "baseColor": "mauve",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "composables": "@/composables"
+  },
+  "iconLibrary": "lucide"
+}

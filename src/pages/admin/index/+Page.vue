@@ -1,37 +1,73 @@
 <script setup lang="ts">
+import { Label } from "@/components/ui/label";
+import AppNotice from "@/components/AppNotice.vue";
 import { computed, onUnmounted, ref } from "vue";
 import { z } from "zod";
 import { createEvent, getEvents } from "../../../lib/api";
 import type { AttendanceEvent } from "../../../lib/models";
-import { appLink, eventLink, reportLink } from "../../../lib/links";
-import AdminGate from "../../../components/AdminGate.vue";
+import { reportLink } from "../../../lib/links";
+import { cache } from "../../../lib/cache";
+import { Card } from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import AppIcon from "../../../components/AppIcon.vue";
 import CopyEventLink from "../../../components/CopyEventLink.vue";
 
-const events = ref<AttendanceEvent[]>([]);
-const loading = ref(true);
+const events = ref<AttendanceEvent[]>(cache.events() ?? []);
+const loading = ref(cache.events() === undefined);
 const creating = ref(false);
 const showCreate = ref(false);
 const title = ref("");
 const search = ref("");
+const eventStatus = ref("all");
 const error = ref("");
 const message = ref("");
 let mounted = true;
 
 const visible = computed(() =>
-  events.value.filter((event) =>
-    event.title.toLocaleLowerCase("es").includes(search.value.trim().toLocaleLowerCase("es")),
+  events.value.filter(
+    (event) =>
+      event.title.toLocaleLowerCase("es").includes(search.value.trim().toLocaleLowerCase("es")) &&
+      (eventStatus.value === "all" || event.is_open === (eventStatus.value === "open")),
   ),
 );
 
 const opened = computed(() => events.value.filter((event) => event.is_open).length);
 
 async function load() {
-  loading.value = true;
+  // Keep showing cached events while refreshing in the background.
+  loading.value = cache.events() === undefined;
   error.value = "";
 
   try {
     const result = await getEvents();
+    cache.setEvents(result);
 
     if (mounted) events.value = result;
   } catch (cause) {
@@ -60,6 +96,7 @@ async function create() {
 
     if (!mounted) return;
     events.value.unshift(event);
+    cache.setEvents(events.value);
     title.value = "";
     showCreate.value = false;
     message.value = "Evento creado. Copia su enlace para compartir el registro.";
@@ -76,110 +113,127 @@ onUnmounted(() => {
 });
 </script>
 <template>
-  <AdminGate
-    ><div class="admin-content" @vue:mounted="load">
+  <Dialog v-model:open="showCreate">
+    <div class="admin-content" @vue:mounted="load">
       <div class="page-heading">
         <div>
           <p class="eyebrow">ADMINISTRACIÓN</p>
           <h1>Mis eventos</h1>
           <p class="muted">Crea un evento o consulta su asistencia.</p>
         </div>
-        <button class="primary" :aria-expanded="showCreate" @click="showCreate = !showCreate">
-          <AppIcon name="plus" /> Nuevo evento
-        </button>
+        <DialogTrigger as-child
+          ><Button><AppIcon name="plus" /> Nuevo evento</Button></DialogTrigger
+        >
       </div>
-      <form v-if="showCreate" class="panel create-event-form" @submit.prevent="create">
-        <h2>Crea un evento</h2>
-        <label for="new-event">Nombre del evento</label>
-        <div class="inline-form">
-          <input
+      <DialogContent
+        ><DialogHeader
+          ><DialogTitle>Crear evento</DialogTitle
+          ><DialogDescription
+            >Asigna un nombre. Después podrás compartir el enlace de registro.</DialogDescription
+          ></DialogHeader
+        >
+        <form class="create-event-dialog" @submit.prevent="create">
+          <Label class="mb-2 block" for="new-event">Nombre del evento</Label
+          ><Input
             id="new-event"
             v-model="title"
             placeholder="Ej. Reunión de noviembre"
             maxlength="200"
             required
             :disabled="creating"
-            autofocus
-          /><button class="primary" :disabled="creating || !title.trim()">
-            {{ creating ? "Creando…" : "Crear evento" }}</button
-          ><button type="button" :disabled="creating" @click="showCreate = false">Cancelar</button>
-        </div>
-        <p class="small muted">Se creará un enlace propio y una lista de asistencia vacía.</p>
-      </form>
-      <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-      <p v-if="message" class="notice success" role="status">{{ message }}</p>
+          />
+          <div class="dialog-actions">
+            <Button type="button" variant="outline" :disabled="creating" @click="showCreate = false"
+              >Cancelar</Button
+            ><Button type="submit" :disabled="creating || !title.trim()">{{
+              creating ? "Creando…" : "Crear evento"
+            }}</Button>
+          </div>
+        </form></DialogContent
+      >
+      <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
+      <AppNotice v-if="message" kind="success">{{ message }}</AppNotice>
       <div class="event-list-toolbar">
         <p>
           <strong>{{ events.length }}</strong> eventos <span class="toolbar-dot">·</span>
           {{ opened }} abiertos
         </p>
-        <div class="search-field">
-          <AppIcon name="search" /><input
-            v-model="search"
-            aria-label="Buscar evento"
-            type="search"
-            placeholder="Buscar evento"
-          />
+        <div class="event-toolbar-controls">
+          <Select v-model="eventStatus"
+            ><SelectTrigger aria-label="Filtrar eventos por estado"><SelectValue /></SelectTrigger
+            ><SelectContent
+              ><SelectItem value="all">Todos los estados</SelectItem
+              ><SelectItem value="open">Abiertos</SelectItem
+              ><SelectItem value="closed">Cerrados</SelectItem></SelectContent
+            ></Select
+          >
+          <InputGroup class="search-field"
+            ><InputGroupAddon><AppIcon name="search" /></InputGroupAddon
+            ><InputGroupInput
+              v-model="search"
+              aria-label="Buscar evento"
+              type="search"
+              placeholder="Buscar evento"
+          /></InputGroup>
         </div>
       </div>
-      <p v-if="loading" class="empty-state" role="status">Cargando tus eventos…</p>
-      <div v-else-if="visible.length" class="event-grid">
-        <article v-for="event in visible" :key="event.id" class="event-card">
-          <div class="event-card-top">
-            <span class="event-icon"><AppIcon name="calendar" /></span
-            ><span class="status-pill" :class="{ closed: !event.is_open }"
-              ><span />{{ event.is_open ? "Abierto" : "Cerrado" }}</span
-            >
-          </div>
-          <h2>
-            <a :href="reportLink(event.id)">{{ event.title }}</a>
-          </h2>
-          <p class="small muted">
-            Creado el
-            {{
-              new Date(event.created_at).toLocaleDateString("es-MX", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })
-            }}
-          </p>
-          <a :href="eventLink(event.id)" class="event-register-link"
-            >Abrir registro <AppIcon name="arrow"
-          /></a>
-          <div class="event-card-bottom">
-            <CopyEventLink :event-id="event.id" /><a
-              :href="reportLink(event.id)"
-              class="button small-button"
-              >Ver asistencia</a
-            >
-          </div>
-        </article>
+      <div v-if="loading" class="grid gap-2" role="status" aria-label="Cargando tus eventos">
+        <Skeleton v-for="index in 4" :key="index" class="h-14 w-full" />
       </div>
-      <section v-else class="panel empty-events">
+      <Card
+        v-else-if="visible.length"
+        class="event-list gap-0 rounded-xl border shadow-none ring-0 py-0"
+        ><Table
+          ><TableHeader
+            ><TableRow
+              ><TableHead>Evento</TableHead><TableHead>Estado</TableHead
+              ><TableHead>Fecha de creación</TableHead
+              ><TableHead class="text-right">Acciones</TableHead></TableRow
+            ></TableHeader
+          ><TableBody
+            ><TableRow v-for="event in visible" :key="event.id"
+              ><TableCell
+                ><h2 class="event-list-title">
+                  <a :href="reportLink(event.id)">{{ event.title }}</a>
+                </h2></TableCell
+              ><TableCell
+                ><Badge :variant="event.is_open ? 'secondary' : 'outline'">{{
+                  event.is_open ? "Abierto" : "Cerrado"
+                }}</Badge></TableCell
+              ><TableCell class="whitespace-nowrap">{{
+                new Date(event.created_at).toLocaleDateString("es-MX", {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })
+              }}</TableCell
+              ><TableCell
+                ><div class="flex items-center justify-end gap-3">
+                  <CopyEventLink :event-id="event.id" /><Button variant="outline" as-child
+                    ><a :href="reportLink(event.id)">Ver asistencia</a></Button
+                  >
+                </div></TableCell
+              ></TableRow
+            ></TableBody
+          ></Table
+        ></Card
+      >
+      <Card v-else class="empty-events gap-0 rounded-xl border shadow-none ring-0 items-center">
         <span class="hero-icon"><AppIcon name="calendar" /></span>
-        <h2>{{ search ? "No encontramos ese evento" : "No hay eventos" }}</h2>
+        <h2>
+          {{ search || eventStatus !== "all" ? "No encontramos ese evento" : "No hay eventos" }}
+        </h2>
         <p class="muted">
           {{
-            search
+            search || eventStatus !== "all"
               ? "Prueba con otro nombre."
               : "Crea un evento y comparte su enlace para comenzar a registrar asistencia."
           }}
         </p>
-        <button v-if="!search" class="primary" @click="showCreate = true">
+        <Button v-if="!search" @click="showCreate = true">
           <AppIcon name="plus" /> Crear evento
-        </button>
-      </section>
-      <div class="admin-tip">
-        <AppIcon name="users" />
-        <p>
-          Prepara tu base de empleados antes de compartir un evento.
-          <a :href="appLink('admin/empleados')"
-            >Administrar empleados <span aria-hidden="true">→</span></a
-          >
-        </p>
-        <button v-if="error" @click="load">Volver a intentar</button>
-      </div>
-    </div></AdminGate
-  >
+        </Button>
+      </Card>
+    </div>
+  </Dialog>
 </template>

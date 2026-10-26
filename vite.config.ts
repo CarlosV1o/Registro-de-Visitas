@@ -1,3 +1,5 @@
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 import vue from "@vitejs/plugin-vue";
 import vike from "vike/plugin";
 import { defineConfig } from "vite-plus";
@@ -21,7 +23,8 @@ const appCommand = ["dev", "build", "preview"].includes(process.argv[2] ?? "");
 
 export default defineConfig({
   base: process.env.DEPLOY_BASE || "/",
-  plugins: [vue(), ...(appCommand ? [vike()] : [])],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
+  plugins: [tailwindcss(), vue(), ...(appCommand ? [vike()] : [])],
   fmt: { ignorePatterns: agentFiles },
   lint: {
     ignorePatterns: [...agentFiles, "dist/**"],

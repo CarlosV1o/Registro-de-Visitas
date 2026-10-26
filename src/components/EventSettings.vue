@@ -1,6 +1,21 @@
 <script setup lang="ts">
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import AppNotice from "@/components/AppNotice.vue";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { ref, watch } from "vue";
 import { deleteEvent, updateEvent } from "../lib/api";
+import { cache } from "../lib/cache";
 import type { AttendanceEvent } from "../lib/models";
 
 const props = defineProps<{ event: AttendanceEvent | null }>();
@@ -9,6 +24,7 @@ const title = ref("");
 const busy = ref(false);
 const message = ref("");
 const error = ref("");
+const confirmation = ref<"close" | "delete" | null>(null);
 
 watch(
   () => props.event,
@@ -18,24 +34,18 @@ watch(
   { immediate: true },
 );
 
-async function save(close: boolean) {
-  if (!props.event) return;
-
-  if (
-    close &&
-    !window.confirm(
-      "¿Cerrar este evento? Se conservará la asistencia y no se permitirán más ingresos.",
-    )
-  )
-    return;
+async function save(close: boolean, rename = true) {
+  if (!props.event || busy.value) return;
 
   busy.value = true;
   error.value = "";
   message.value = "";
 
   try {
-    await updateEvent(props.event.id, title.value.trim(), !close);
+    await updateEvent(props.event.id, rename ? title.value.trim() : props.event.title, !close);
+    confirmation.value = null;
     message.value = "Evento actualizado.";
+    cache.clear();
     emit("changed");
   } catch {
     error.value = "No se pudo actualizar el evento. Revisa la conexión y tus permisos.";
@@ -47,19 +57,14 @@ async function save(close: boolean) {
 async function remove() {
   if (!props.event || busy.value) return;
 
-  if (
-    !window.confirm(
-      `¿Eliminar «${props.event.title}» y toda su asistencia? Esta acción no se puede deshacer.`,
-    )
-  )
-    return;
-
   busy.value = true;
   error.value = "";
   message.value = "";
 
   try {
     await deleteEvent(props.event.id);
+    confirmation.value = null;
+    cache.clear();
     emit("deleted");
   } catch {
     error.value = "No se pudo eliminar el evento. Revisa tu conexión y tus permisos.";
@@ -67,28 +72,41 @@ async function remove() {
     busy.value = false;
   }
 }
+
+function requestConfirmation(action: "close" | "delete") {
+  error.value = "";
+  confirmation.value = action;
+}
+
+function confirmAction() {
+  if (confirmation.value === "delete") void remove();
+  else if (confirmation.value === "close") void save(true, false);
+}
 </script>
 
 <template>
-  <section class="panel settings-panel">
+  <Card class="settings-panel gap-0 rounded-xl border shadow-none ring-0 p-6">
     <h2>Configuración del evento</h2>
     <p class="muted">
       Actualiza el nombre o cierra el registro. El enlace y la asistencia se conservan.
     </p>
     <form v-if="event" @submit.prevent="save(!event.is_open)">
-      <label for="edit-title">Nombre del evento</label
-      ><input id="edit-title" v-model="title" required maxlength="200" />
+      <Label class="mb-2 block" for="edit-title">Nombre del evento</Label
+      ><Input id="edit-title" v-model="title" required maxlength="200" />
       <div class="actions">
-        <button :disabled="busy">Guardar nombre</button
-        ><button
+        <Button :disabled="busy || !title.trim() || title.trim() === event.title"
+          >Guardar nombre</Button
+        ><Button
+          variant="outline"
           v-if="event.is_open"
-          class="danger"
           type="button"
           :disabled="busy"
-          @click="save(true)"
+          @click="requestConfirmation('close')"
         >
-          Cerrar evento</button
-        ><button v-else type="button" :disabled="busy" @click="save(false)">Reabrir evento</button>
+          Cerrar evento</Button
+        ><Button variant="outline" v-else type="button" :disabled="busy" @click="save(false, false)"
+          >Reabrir evento</Button
+        >
       </div>
     </form>
     <section v-if="event" class="danger-zone" aria-labelledby="delete-event-title">
@@ -97,9 +115,46 @@ async function remove() {
         Se eliminarán este evento y todos sus registros de asistencia. Los empleados y los demás
         eventos se conservan.
       </p>
-      <button class="danger" type="button" :disabled="busy" @click="remove">Eliminar evento</button>
+      <Button
+        variant="destructive"
+        type="button"
+        :disabled="busy"
+        @click="requestConfirmation('delete')"
+        >Eliminar evento</Button
+      >
     </section>
-    <p v-if="error" role="alert" class="notice error">{{ error }}</p>
-    <p v-if="message" role="status" class="notice success">{{ message }}</p>
-  </section>
+    <AppNotice v-if="error && !confirmation" kind="error">{{ error }}</AppNotice>
+    <AppNotice v-if="message" kind="success">{{ message }}</AppNotice>
+    <AlertDialog
+      :open="confirmation !== null"
+      @update:open="
+        (open) => {
+          if (!open && !busy) confirmation = null;
+        }
+      "
+      ><AlertDialogContent
+        ><AlertDialogHeader
+          ><AlertDialogTitle>{{
+            confirmation === "delete" ? "¿Eliminar este evento?" : "¿Cerrar el registro?"
+          }}</AlertDialogTitle
+          ><AlertDialogDescription>{{
+            confirmation === "delete"
+              ? `Se eliminará «${event?.title}» y toda su asistencia. Esta acción no se puede deshacer.`
+              : `Se cerrará el registro de «${event?.title}». Se conservará la asistencia y podrás reabrirlo después.`
+          }}</AlertDialogDescription></AlertDialogHeader
+        ><AppNotice v-if="error" kind="error">{{ error }}</AppNotice
+        ><AlertDialogFooter
+          ><AlertDialogCancel :disabled="busy">Cancelar</AlertDialogCancel
+          ><Button
+            :variant="confirmation === 'delete' ? 'destructive' : 'default'"
+            :disabled="busy"
+            @click="confirmAction"
+            >{{
+              busy ? "Guardando…" : confirmation === "delete" ? "Eliminar evento" : "Cerrar evento"
+            }}</Button
+          ></AlertDialogFooter
+        ></AlertDialogContent
+      ></AlertDialog
+    >
+  </Card>
 </template>

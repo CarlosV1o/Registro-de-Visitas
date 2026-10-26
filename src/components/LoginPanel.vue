@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import AppNotice from "@/components/AppNotice.vue";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { onMounted, ref } from "vue";
 import BrandMark from "./BrandMark.vue";
 import AppIcon from "./AppIcon.vue";
@@ -101,44 +106,52 @@ async function signIn() {
 </script>
 
 <template>
-  <main class="login-layout">
-    <section class="panel login-form" aria-labelledby="login-title">
+  <main
+    v-if="checkingLink"
+    class="loading-screen"
+    role="status"
+    aria-label="Comprobando sesión"
+  ></main>
+  <main v-else class="login-layout">
+    <Card
+      class="login-form gap-0 rounded-xl border shadow-none ring-0 py-0"
+      aria-labelledby="login-title"
+    >
       <BrandMark /><span class="login-lock"><AppIcon name="lock" /></span>
-      <p v-if="checkingLink" role="status">Comprobando sesión…</p>
-      <template v-else-if="supabase && settingPassword">
+      <template v-if="supabase && settingPassword">
         <h1 id="login-title">Crear contraseña</h1>
         <p class="muted">Elige una contraseña para entrar al registro de asistencia.</p>
         <form @submit.prevent="savePassword">
-          <label for="new-password">Nueva contraseña</label>
-          <input
+          <Label class="mb-2 block" for="new-password">Nueva contraseña</Label>
+          <Input
             id="new-password"
             v-model="password"
             type="password"
             autocomplete="new-password"
             required
-            minlength="8"
+            minlength="12"
           />
-          <label for="confirm-password">Confirmar contraseña</label>
-          <input
+          <Label class="mb-2 block" for="confirm-password">Confirmar contraseña</Label>
+          <Input
             id="confirm-password"
             v-model="confirmation"
             type="password"
             autocomplete="new-password"
             required
-            minlength="8"
+            minlength="12"
           />
-          <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-          <button class="primary" :disabled="busy">
+          <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
+          <Button variant="default" :disabled="busy">
             {{ busy ? "Guardando…" : "Guardar y entrar" }}
-          </button>
+          </Button>
         </form>
       </template>
       <template v-else-if="supabase">
         <h1 id="login-title">Iniciar sesión</h1>
         <p class="muted">Accede para administrar tus eventos y consultar la asistencia.</p>
         <form @submit.prevent="signIn">
-          <label for="email">Correo electrónico</label>
-          <input
+          <Label class="mb-2 block" for="email">Correo electrónico</Label>
+          <Input
             id="email"
             v-model="email"
             type="email"
@@ -146,26 +159,26 @@ async function signIn() {
             required
             autofocus
           />
-          <label for="password">Contraseña</label>
-          <input
+          <Label class="mb-2 block" for="password">Contraseña</Label>
+          <Input
             id="password"
             v-model="password"
             type="password"
             autocomplete="current-password"
             required
           />
-          <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-          <button class="primary" :disabled="busy">{{ busy ? "Entrando…" : "Entrar" }}</button>
+          <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
+          <Button variant="default" :disabled="busy">{{ busy ? "Entrando…" : "Entrar" }}</Button>
         </form>
       </template>
       <template v-else>
         <h1 id="login-title">Registro de asistencia</h1>
-        <p class="notice" role="status">
+        <AppNotice kind="info">
           La página está pendiente de configuración. Contacta al administrador para habilitar el
           registro.
-        </p>
+        </AppNotice>
       </template>
       <a :href="appLink()" class="login-back">Volver al inicio</a>
-    </section>
+    </Card>
   </main>
 </template>

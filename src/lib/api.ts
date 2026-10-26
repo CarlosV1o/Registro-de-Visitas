@@ -121,6 +121,8 @@ export async function getPublicEvent(eventId: string) {
   return publicEventSchema.nullable().parse(data);
 }
 
+export const publicReceiptSchema = z.object({ accepted: z.literal(true) }).strict();
+
 export async function publicCheckIn(eventId: string, employeeId: string) {
   const { data, error } = await client().rpc("register_attendance", {
     target_event: eventId,
@@ -129,13 +131,8 @@ export async function publicCheckIn(eventId: string, employeeId: string) {
 
   if (error) throw error;
 
-  return z
-    .object({
-      created: z.boolean(),
-      nombre: z.string(),
-      checked_in_at: z.iso.datetime({ offset: true }),
-    })
-    .parse(data);
+  // Reject an old backend that still exposes employee-specific receipts.
+  return publicReceiptSchema.parse(data);
 }
 
 export async function deleteEvent(eventId: string) {

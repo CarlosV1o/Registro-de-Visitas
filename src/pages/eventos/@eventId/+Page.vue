@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import AppNotice from "@/components/AppNotice.vue";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { z } from "zod";
 import { usePageContext } from "vike-vue/usePageContext";
@@ -14,8 +20,8 @@ const loading = ref(true);
 const registering = ref(false);
 const employeeId = ref("");
 const error = ref("");
-const receipt = ref<{ created: boolean; nombre: string; checked_in_at: string } | null>(null);
-const input = ref<HTMLInputElement | null>(null);
+const receipt = ref<{ accepted: true } | null>(null);
+const input = ref<InstanceType<typeof Input> | null>(null);
 let generation = 0;
 
 async function load() {
@@ -60,21 +66,10 @@ async function register() {
   } catch (cause) {
     if (request !== generation) return;
 
-    const invalid = z.object({ code: z.literal("22023") }).safeParse(cause).success;
-
-    error.value = invalid
-      ? "No se pudo registrar. Revisa tu número de empleado y que el evento siga abierto."
-      : "No se confirmó tu registro. Revisa tu conexión e intenta de nuevo; no se crearán duplicados.";
-
-    if (invalid) {
-      try {
-        const updated = await getPublicEvent(target);
-
-        if (request === generation) event.value = updated;
-      } catch {
-        /* Keep the registration error visible when offline. */
-      }
-    }
+    const limited = z.object({ code: z.literal("PT429") }).safeParse(cause).success;
+    error.value = limited
+      ? "Se alcanzó el límite de solicitudes. Espera unos minutos antes de intentarlo otra vez."
+      : "No se pudo procesar la solicitud. Revisa tu conexión o consulta al organizador.";
   } finally {
     registering.value = false;
   }
@@ -101,10 +96,13 @@ onUnmounted(() => {
           <p class="eyebrow">REGISTRO DE ASISTENCIA</p>
           <h1>{{ event.title }}</h1>
         </div>
-        <section class="registration-card" aria-labelledby="register-title">
-          <span class="status-pill" :class="{ closed: !event.is_open }"
-            ><span />{{ event.is_open ? "Registro abierto" : "Evento cerrado" }}</span
-          >
+        <Card
+          class="registration-card gap-0 rounded-xl border shadow-none ring-0 py-0"
+          aria-labelledby="register-title"
+        >
+          <Badge :variant="event.is_open ? 'secondary' : 'outline'" class="registration-status">{{
+            event.is_open ? "Registro abierto" : "Evento cerrado"
+          }}</Badge>
           <h2 id="register-title">
             {{ event.is_open ? "Registra tu asistencia" : "El registro ha terminado" }}
           </h2>
@@ -116,8 +114,8 @@ onUnmounted(() => {
             }}
           </p>
           <form v-if="event.is_open" @submit.prevent="register">
-            <label for="employee-id">Número de empleado</label
-            ><input
+            <Label class="mb-2 block" for="employee-id">Número de empleado</Label
+            ><Input
               id="employee-id"
               ref="input"
               v-model="employeeId"
@@ -128,49 +126,39 @@ onUnmounted(() => {
               maxlength="100"
               required
               :disabled="registering"
-            /><button class="primary register-button" :disabled="registering || !employeeId.trim()">
+            /><Button class="register-button" :disabled="registering || !employeeId.trim()">
               {{ registering ? "Registrando…" : "Registrar mi asistencia"
               }}<AppIcon v-if="!registering" name="arrow" />
-            </button>
+            </Button>
           </form>
-          <div
-            v-if="receipt"
-            class="receipt"
-            :class="{ duplicate: !receipt.created }"
-            role="status"
-            aria-live="polite"
-          >
-            <span class="receipt-icon"><AppIcon name="check" /></span>
+          <AppNotice v-if="receipt" kind="success">
             <div>
-              <strong>{{
-                receipt.created
-                  ? "¡Listo! Tu asistencia está registrada."
-                  : "Tu asistencia ya estaba registrada."
-              }}</strong>
-              <p>{{ receipt.nombre }}</p>
-              <span>{{
-                new Date(receipt.checked_in_at).toLocaleString("es-MX", {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                })
-              }}</span>
+              <strong>Solicitud recibida</strong>
+              <p>
+                Si el número corresponde a un empleado activo y el evento está abierto, su
+                asistencia quedará registrada.
+              </p>
+              <span>Para confirmar o corregir el registro, consulta al organizador.</span>
             </div>
-          </div>
-          <p v-if="error" class="notice error" role="alert">{{ error }}</p>
+          </AppNotice>
+          <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
           <div class="form-footnote">
             <AppIcon name="clock" /><span>La hora se guarda automáticamente.</span>
           </div>
-        </section>
+        </Card>
         <p class="registration-help">¿Necesitas ayuda? Acércate al organizador del evento.</p>
       </template>
-      <section v-else class="registration-card not-found">
+      <Card
+        v-else
+        class="registration-card not-found gap-0 rounded-xl border shadow-none ring-0 py-0"
+      >
         <AppIcon name="calendar" />
         <h1>{{ error ? "No se pudo cargar el evento" : "Evento no encontrado" }}</h1>
-        <p v-if="error" role="alert">{{ error }}</p>
+        <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
         <p v-else>Comprueba el enlace o solicita uno nuevo al organizador.</p>
-        <button v-if="error" @click="load">Volver a intentar</button
-        ><a v-else :href="appLink()" class="button">Ir al inicio</a>
-      </section>
+        <Button variant="outline" v-if="error" @click="load">Volver a intentar</Button
+        ><Button v-else variant="outline" as-child><a :href="appLink()">Ir al inicio</a></Button>
+      </Card>
     </main>
   </div>
 </template>

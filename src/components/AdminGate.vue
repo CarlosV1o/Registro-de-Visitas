@@ -1,18 +1,43 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import AppNotice from "@/components/AppNotice.vue";
+import { Button } from "@/components/ui/button";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { usePageContext } from "vike-vue/usePageContext";
 import type { Session, Subscription } from "@supabase/supabase-js";
 import { client, supabase } from "../lib/supabase";
 import { getRole } from "../lib/api";
-import { appLink } from "../lib/links";
+import { cache } from "../lib/cache";
 import LoginPanel from "./LoginPanel.vue";
-import BrandMark from "./BrandMark.vue";
+import AdminSidebar from "./AdminSidebar.vue";
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Separator } from "@/components/ui/separator";
 import AppIcon from "./AppIcon.vue";
 
+const pageContext = usePageContext();
+const employeePage = computed(() => pageContext.urlPathname.includes("/admin/empleados"));
 const session = ref<Session | null>(null);
 const authorized = ref(false);
 const loading = ref(true);
 const error = ref("");
+const workspace = ref<HTMLElement | null>(null);
 let subscription: Subscription | undefined;
+
+// Move focus off the clicked navigation link to the new page content after client routing.
+watch(
+  () => pageContext.urlPathname,
+  async () => {
+    await nextTick();
+    workspace.value?.focus({ preventScroll: true });
+  },
+);
+
 let mounted = true;
 
 async function authorize() {
@@ -56,6 +81,7 @@ async function signOut() {
     return;
   }
 
+  cache.clear();
   session.value = null;
   authorized.value = false;
 }
@@ -63,6 +89,7 @@ async function signOut() {
 onMounted(() => {
   subscription = supabase?.auth.onAuthStateChange((event) => {
     if (event === "SIGNED_OUT") {
+      cache.clear();
       session.value = null;
       authorized.value = false;
     }
@@ -78,25 +105,36 @@ onUnmounted(() => {
 <template>
   <main v-if="loading" class="loading-screen" role="status">Comprobando acceso…</main>
   <LoginPanel v-else-if="!session" @signed-in="authorize" />
-  <div v-else class="admin-app">
-    <header class="app-header">
-      <BrandMark />
-      <nav class="header-actions" aria-label="Administración">
-        <a :href="appLink('admin')">Eventos</a><a :href="appLink('admin/empleados')">Empleados</a
-        ><span class="account-email">{{ session.user.email }}</span
-        ><button
-          class="icon-button"
-          aria-label="Cerrar sesión"
-          title="Cerrar sesión"
-          @click="signOut"
+  <SidebarProvider v-else class="admin-app"
+    ><AdminSidebar
+      :employee-page="employeePage"
+      :email="session.user.email"
+      @sign-out="signOut"
+    /><SidebarInset class="min-w-0">
+      <header class="admin-topbar">
+        <div class="flex items-center gap-3">
+          <SidebarTrigger aria-label="Mostrar navegación" /><Separator
+            orientation="vertical"
+            class="h-4"
+          />
+          <Breadcrumb
+            ><BreadcrumbList
+              ><BreadcrumbItem>Administración</BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem
+                ><BreadcrumbPage>{{
+                  employeePage ? "Empleados" : "Eventos"
+                }}</BreadcrumbPage></BreadcrumbItem
+              ></BreadcrumbList
+            ></Breadcrumb
+          >
+        </div>
+        <span class="topbar-caption"><AppIcon name="lock" /> Acceso administrativo</span>
+      </header>
+      <div ref="workspace" class="admin-workspace outline-none" tabindex="-1">
+        <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
+        <slot v-if="authorized" /><Button variant="outline" v-else @click="authorize"
+          >Volver a intentar</Button
         >
-          <AppIcon name="logout" />
-        </button>
-      </nav>
-    </header>
-    <main class="admin-workspace">
-      <p v-if="error" class="notice error" role="alert">{{ error }}</p>
-      <slot v-if="authorized" /><button v-else @click="authorize">Volver a intentar</button>
-    </main>
-  </div>
+      </div></SidebarInset
+    ></SidebarProvider
+  >
 </template>
