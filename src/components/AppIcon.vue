@@ -15,6 +15,7 @@ import {
   Ellipsis,
   Upload,
   Printer,
+  RefreshCw,
   Search,
   SlidersHorizontal,
   UserCheck,
@@ -44,6 +45,7 @@ const icons = new Map([
   ["chevron", ChevronDown],
   ["attended", UserCheck],
   ["pending", Clock],
+  ["refresh", RefreshCw],
 ]);
 </script>
 <template>

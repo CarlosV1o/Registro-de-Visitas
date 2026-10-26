@@ -70,6 +70,13 @@ const visible = computed(() =>
 const pages = computed(() => Math.max(1, Math.ceil(visible.value.length / 25)));
 const pageRows = computed(() => visible.value.slice((page.value - 1) * 25, page.value * 25));
 
+const filtered = computed(() => search.value.trim() !== "" || status.value !== "all");
+
+function clearFilters() {
+  search.value = "";
+  status.value = "all";
+}
+
 watch([search, status], () => {
   page.value = 1;
 });
@@ -113,11 +120,14 @@ onUnmounted(() => {
           </p>
         </div>
         <DialogTrigger as-child
-          ><Button><AppIcon name="plus" /> Importar CSV</Button></DialogTrigger
+          ><Button><AppIcon name="upload" /> Importar CSV</Button></DialogTrigger
         >
       </div>
       <AppNotice v-if="error" kind="error">
-        {{ error }} <Button variant="outline" @click="load">Volver a intentar</Button>
+        {{ error }}
+        <Button variant="outline" size="sm" :disabled="loading" @click="load"
+          >Volver a intentar</Button
+        >
       </AppNotice>
       <DialogContent class="employee-import-dialog"
         ><DialogHeader
@@ -196,20 +206,36 @@ onUnmounted(() => {
                   }}</Badge>
                 </TableCell>
               </TableRow>
-              <TableRow v-if="!visible.length">
+              <TableRow v-if="!visible.length && (filtered || !error)">
                 <TableCell colspan="8" class="empty-state">
-                  {{
-                    employees.length
-                      ? "Sin resultados. Prueba con otros filtros."
-                      : "Importa un CSV para comenzar tu directorio."
-                  }}
+                  <span class="empty-table-icon"><AppIcon name="users" /></span
+                  ><strong>{{
+                    filtered ? "Ningún empleado coincide" : "Tu directorio está vacío"
+                  }}</strong>
+                  <p>
+                    {{
+                      filtered
+                        ? "Prueba con otro ID, nombre o estado."
+                        : "Importa un CSV con tus empleados para que puedan registrar su asistencia."
+                    }}
+                  </p>
+                  <Button
+                    v-if="filtered"
+                    variant="outline"
+                    size="sm"
+                    class="mt-4"
+                    @click="clearFilters"
+                    >Quitar filtros</Button
+                  ><Button v-else size="sm" class="mt-4" @click="importOpen = true"
+                    ><AppIcon name="upload" /> Importar CSV</Button
+                  >
                 </TableCell>
               </TableRow>
             </TableBody>
           </Table>
         </div>
         <div class="table-pagination">
-          <span>{{ visible.length }} empleados</span>
+          <span>{{ visible.length }} {{ visible.length === 1 ? "empleado" : "empleados" }}</span>
           <div>
             <DataPagination v-model:page="page" :total="visible.length" :page-size="25" />
           </div>

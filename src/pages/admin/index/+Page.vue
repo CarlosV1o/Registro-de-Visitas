@@ -7,6 +7,7 @@ import { createEvent, getEvents } from "../../../lib/api";
 import type { AttendanceEvent } from "../../../lib/models";
 import { reportLink } from "../../../lib/links";
 import { cache } from "../../../lib/cache";
+import { prefetchEvent } from "../../../lib/prefetch";
 import { Card } from "@/components/ui/card";
 import {
   Table,
@@ -47,6 +48,7 @@ const title = ref("");
 const search = ref("");
 const eventStatus = ref("all");
 const error = ref("");
+const loadError = ref("");
 const message = ref("");
 let mounted = true;
 
@@ -59,11 +61,25 @@ const visible = computed(() =>
 );
 
 const opened = computed(() => events.value.filter((event) => event.is_open).length);
+const filtered = computed(() => search.value.trim() !== "" || eventStatus.value !== "all");
+
+function clearFilters() {
+  search.value = "";
+  eventStatus.value = "all";
+}
+
+function createdOn(value: string) {
+  return new Date(value).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
 
 async function load() {
   // Keep showing cached events while refreshing in the background.
   loading.value = cache.events() === undefined;
-  error.value = "";
+  loadError.value = "";
 
   try {
     const result = await getEvents();
@@ -77,7 +93,7 @@ async function load() {
       .object({ code: z.enum(["PGRST202", "PGRST205", "42P01", "42883"]) })
       .safeParse(cause).success;
 
-    error.value = missingSchema
+    loadError.value = missingSchema
       ? "Falta preparar la base de datos. Pide al administrador que complete la instalación."
       : "No pudimos cargar tus eventos. Revisa tu conexión y vuelve a intentar.";
   } finally {
@@ -151,12 +167,19 @@ onUnmounted(() => {
           </div>
         </form></DialogContent
       >
+      <AppNotice v-if="loadError" kind="error">
+        {{ loadError }}
+        <Button variant="outline" size="sm" :disabled="loading" @click="load"
+          >Volver a intentar</Button
+        >
+      </AppNotice>
       <AppNotice v-if="error" kind="error">{{ error }}</AppNotice>
       <AppNotice v-if="message" kind="success">{{ message }}</AppNotice>
       <div class="event-list-toolbar">
         <p>
-          <strong>{{ events.length }}</strong> eventos <span class="toolbar-dot">·</span>
-          {{ opened }} abiertos
+          <strong>{{ events.length }}</strong> {{ events.length === 1 ? "evento" : "eventos" }}
+          <span class="toolbar-dot">·</span>
+          {{ opened }} {{ opened === 1 ? "abierto" : "abiertos" }}
         </p>
         <div class="event-toolbar-controls">
           <Select v-model="eventStatus"
@@ -186,30 +209,45 @@ onUnmounted(() => {
         ><Table
           ><TableHeader
             ><TableRow
-              ><TableHead>Evento</TableHead><TableHead>Estado</TableHead
-              ><TableHead>Fecha de creación</TableHead
-              ><TableHead class="text-right">Acciones</TableHead></TableRow
+              ><TableHead>Evento</TableHead
+              ><TableHead class="hidden sm:table-cell">Estado</TableHead
+              ><TableHead class="hidden sm:table-cell">Fecha de creación</TableHead
+              ><TableHead class="text-right"
+                ><span class="sr-only sm:not-sr-only">Acciones</span></TableHead
+              ></TableRow
             ></TableHeader
           ><TableBody
-            ><TableRow v-for="event in visible" :key="event.id"
+            ><TableRow
+              v-for="event in visible"
+              :key="event.id"
+              @pointerenter="prefetchEvent(event.id)"
+              @focusin="prefetchEvent(event.id)"
               ><TableCell
                 ><h2 class="event-list-title">
                   <a :href="reportLink(event.id)">{{ event.title }}</a>
-                </h2></TableCell
-              ><TableCell
-                ><Badge :variant="event.is_open ? 'secondary' : 'outline'">{{
+                </h2>
+                <div
+                  class="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:hidden"
+                >
+                  <Badge :variant="event.is_open ? 'success' : 'outline'">{{
+                    event.is_open ? "Abierto" : "Cerrado"
+                  }}</Badge
+                  ><span>{{ createdOn(event.created_at) }}</span>
+                </div></TableCell
+              ><TableCell class="hidden sm:table-cell"
+                ><Badge :variant="event.is_open ? 'success' : 'outline'">{{
                   event.is_open ? "Abierto" : "Cerrado"
                 }}</Badge></TableCell
-              ><TableCell class="whitespace-nowrap">{{
-                new Date(event.created_at).toLocaleDateString("es-MX", {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })
+              ><TableCell class="hidden whitespace-nowrap sm:table-cell">{{
+                createdOn(event.created_at)
               }}</TableCell
               ><TableCell
-                ><div class="flex items-center justify-end gap-3">
-                  <CopyEventLink :event-id="event.id" /><Button variant="outline" as-child
+                ><div class="flex items-center justify-end gap-2">
+                  <CopyEventLink :event-id="event.id" compact /><Button
+                    variant="outline"
+                    size="sm"
+                    class="hidden sm:inline-flex"
+                    as-child
                     ><a :href="reportLink(event.id)">Ver asistencia</a></Button
                   >
                 </div></TableCell
@@ -218,21 +256,23 @@ onUnmounted(() => {
           ></Table
         ></Card
       >
-      <Card v-else class="empty-events gap-0 rounded-xl border shadow-none ring-0 items-center">
+      <Card
+        v-else-if="!loadError || filtered"
+        class="empty-events gap-0 rounded-xl border shadow-none ring-0 items-center"
+      >
         <span class="hero-icon"><AppIcon name="calendar" /></span>
         <h2>
-          {{ search || eventStatus !== "all" ? "No encontramos ese evento" : "No hay eventos" }}
+          {{ filtered ? "Ningún evento coincide" : "No hay eventos" }}
         </h2>
         <p class="muted">
           {{
-            search || eventStatus !== "all"
-              ? "Prueba con otro nombre."
+            filtered
+              ? "Prueba con otro nombre o cambia el filtro de estado."
               : "Crea un evento y comparte su enlace para comenzar a registrar asistencia."
           }}
         </p>
-        <Button v-if="!search" @click="showCreate = true">
-          <AppIcon name="plus" /> Crear evento
-        </Button>
+        <Button v-if="filtered" variant="outline" @click="clearFilters">Quitar filtros</Button>
+        <Button v-else @click="showCreate = true"> <AppIcon name="plus" /> Crear evento </Button>
       </Card>
     </div>
   </Dialog>

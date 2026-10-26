@@ -83,3 +83,11 @@ La acción `.github/workflows/pages.yml` valida y publica cada push a `main`. Se
 La compilación usa `DEPLOY_BASE=/Registro-de-Visitas/` y publica `dist/client/`. Vike genera las páginas estáticas de inicio y administración. `404.html` recupera las rutas dinámicas de eventos con el enrutador del cliente, de modo que los enlaces nuevos no requieren recompilar. GitHub Pages devuelve HTTP 404 para esa primera petición dinámica; la aplicación muestra el evento solicitado y conserva su URL. Los datos se consultan en Supabase y no se incluyen en el HTML generado.
 
 Para otro dominio o subdirectorio, ajusta `DEPLOY_BASE` y la configuración de URLs de Supabase. Sin las variables de Supabase, la app indica que falta configuración y no permite registrar.
+
+## Registro en sitio
+
+El administrador inicia sesión, abre el informe del evento y selecciona **Abrir registro**. En esa misma pestaña, el formulario reconoce la sesión administrativa y habilita el registro en sitio.
+
+Escribe el número y pulsa **Registrar ingreso** una sola vez (o Enter). La asistencia se guarda y aparece **Bienvenido [nombre completo]**, junto con el número y la hora para cotejar la identificación física. El campo queda vacío y enfocado para el siguiente empleado. No hay un paso adicional de verificación ni botones de continuar. Los ingresos repetidos se informan sin duplicarlos.
+
+El nombre y la confirmación del ingreso se obtienen con los permisos administrativos existentes en Postgres. El enlace abierto sin sesión mantiene el recibo público genérico. El informe mantiene los totales visibles arriba. La pestaña Ranking por asesor muestra el ranking; al seleccionar un asesor se abre la pestaña Asistencia con su lista filtrada.

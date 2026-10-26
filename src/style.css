@@ -28,6 +28,8 @@
   --chart-4: oklch(0.364 0.029 323.89);
   --chart-5: oklch(0.263 0.024 320.12);
   --radius: 0.625rem;
+  --success: oklch(0.5 0.11 155);
+  --success-foreground: oklch(0.985 0 0);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0.008 326);
   --sidebar-primary: oklch(0.212 0.019 322.12);
@@ -429,23 +431,6 @@ p:where(:not([data-slot])) {
 .copy-event-link {
   position: relative;
 }
-.copy-button {
-  border: 0;
-  padding: 8px 0;
-  min-height: 38px;
-  font-size: 12px;
-  background: transparent;
-  color: var(--preset-muted-foreground);
-  white-space: nowrap;
-}
-.copy-button svg {
-  width: 15px;
-  height: 15px;
-}
-.copy-button:hover {
-  background: transparent;
-  color: var(--preset-primary);
-}
 .empty-events {
   text-align: center;
   padding: 52px 24px;
@@ -735,20 +720,24 @@ summary {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Near-zero durations keep transitionend/animationend firing for dialogs and menus. */
   *,
   *::before,
   *::after {
-    transition: none !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }
 
 .danger-zone {
   margin-top: 32px;
   padding-top: 24px;
-  border-top: 1px solid #efd8dc;
+  border-top: 1px solid color-mix(in srgb, var(--destructive) 20%, transparent);
 }
 .danger-zone h3 {
-  color: #9f3e4c;
+  color: var(--destructive);
   margin-bottom: 8px;
 }
 .danger-zone p {
@@ -996,7 +985,7 @@ summary {
   border-color: var(--border);
 }
 .admin-app .metric-attended dd {
-  color: #23774c;
+  color: var(--success);
 }
 .event-toolbar-controls {
   display: flex;
@@ -1050,23 +1039,8 @@ summary {
 .admin-app .id-cell {
   color: var(--preset-primary);
   font-family: ui-monospace, monospace;
-  font-size: 11px;
-}
-.attendance-badge {
-  display: inline-block;
-  border: 1px solid #d3e8da;
-  background: #eff8f1;
-  color: #23774c;
-  padding: 3px 8px;
-  border-radius: 5px;
-  white-space: nowrap;
-  font-size: 10px;
-  font-weight: 500;
-}
-.attendance-badge.pending {
-  border-color: var(--border);
-  color: var(--preset-muted-foreground);
-  background: var(--preset-sidebar);
+  font-size: 12px;
+  line-height: 1;
 }
 .table-pagination {
   display: flex;
@@ -1276,6 +1250,8 @@ summary {
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -1384,6 +1360,14 @@ summary {
   .report-tabs {
     padding: 0 14px 16px;
   }
+  .report-tabs [data-slot="tabs-list"] {
+    width: 100%;
+  }
+  .report-tabs [data-slot="tabs-trigger"] {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 6px;
+  }
   .report-tabs [data-slot="tabs-trigger"] {
     gap: 4px;
     font-size: 11px;
@@ -1393,8 +1377,9 @@ summary {
     padding: 0 14px 16px;
   }
   .event-toolbar-controls [data-slot="select-trigger"] {
-    min-width: 130px;
-    width: 130px;
+    min-width: 0;
+    width: auto;
+    flex-shrink: 0;
   }
   .employee-directory .filters [data-slot="select-trigger"] {
     width: 100%;
@@ -1513,14 +1498,16 @@ summary {
   border-radius: 10px;
 }
 .app-notice [data-slot="alert-description"] {
+  /* Balanced or pretty wrapping squeezes multi-sentence notices into a narrow column. */
+  text-wrap: wrap;
   color: inherit;
   font-size: 13px;
   overflow-wrap: anywhere;
 }
 .app-notice-success {
-  border-color: #c9e0d0;
-  color: #23774c;
-  background: #f4faf6;
+  border-color: color-mix(in srgb, var(--success) 25%, transparent);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 6%, var(--card));
 }
 .app-notice [data-slot="button"] {
   margin-top: 8px;
@@ -1569,13 +1556,26 @@ summary {
 .admin-topbar {
   flex-shrink: 0;
 }
-.event-navigation {
-  max-width: none;
-  width: 100%;
-  justify-content: flex-start;
+.event-nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
   margin-bottom: 24px;
+}
+.event-navigation {
+  max-width: none;
+  flex: 0 1 auto;
+  justify-content: flex-start;
+}
+.event-nav-row .report-sync {
+  margin: 0 0 0 auto;
+  width: auto;
+  gap: 4px;
+  white-space: nowrap;
 }
 .event-list-title {
   font-size: 13px !important;
@@ -1609,7 +1609,22 @@ summary {
   [data-slot="sidebar"],
   [data-slot="sidebar-gap"],
   [data-slot="sidebar-trigger"],
-  .event-navigation {
+  .event-nav-row {
     display: none !important;
   }
+}
+
+.event-intro.site-event-intro h1 {
+  font-size: 26px;
+}
+
+.registration-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.registration-card .registration-card-heading h2 {
+  margin: 0;
 }

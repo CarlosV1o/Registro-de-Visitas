@@ -8,7 +8,19 @@ let employees: Employee[] | undefined;
 const eventDetails = new Map<string, AttendanceEvent | null>();
 const attendance = new Map<string, Attendance[]>();
 
+// Email of the account last confirmed as admin in this tab. It only skips the access
+// check screen on client navigation; Postgres policies still authorize every request.
+let adminEmail: string | null = null;
+
+// Bumped on sign-out so late background requests cannot refill a cleared cache.
+let generation = 0;
+
 export const cache = {
+  admin: () => adminEmail,
+  setAdmin(email: string | null) {
+    adminEmail = email;
+  },
+  generation: () => generation,
   events: () => events,
   setEvents(value: AttendanceEvent[]) {
     events = value;
@@ -30,5 +42,7 @@ export const cache = {
     employees = undefined;
     eventDetails.clear();
     attendance.clear();
+    adminEmail = null;
+    generation++;
   },
 };

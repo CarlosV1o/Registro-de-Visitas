@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import AppNotice from "@/components/AppNotice.vue";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { onMounted, ref } from "vue";
 import BrandMark from "./BrandMark.vue";
 import AppIcon from "./AppIcon.vue";
@@ -76,7 +77,7 @@ async function savePassword() {
     emit("signedIn");
   } catch {
     error.value =
-      "No se pudo guardar la contraseña. Usa al menos 8 caracteres o solicita un nuevo enlace si venció.";
+      "No se pudo guardar la contraseña. Usa al menos 12 caracteres o solicita un nuevo enlace si venció.";
   } finally {
     busy.value = false;
   }
@@ -106,12 +107,17 @@ async function signIn() {
 </script>
 
 <template>
-  <main
-    v-if="checkingLink"
-    class="loading-screen"
-    role="status"
-    aria-label="Comprobando sesión"
-  ></main>
+  <main v-if="checkingLink" class="login-layout" role="status" aria-label="Comprobando acceso">
+    <Card class="login-form gap-0 rounded-xl border shadow-none ring-0 py-0">
+      <Skeleton class="mx-auto mb-9 h-8 w-40" /><Skeleton
+        class="mb-5 size-11 rounded-xl"
+      /><Skeleton class="mb-3 h-8 w-48" /><Skeleton class="mb-7 h-4 w-full" /><Skeleton
+        class="mb-2 h-4 w-32"
+      /><Skeleton class="mb-6 h-9 w-full" /><Skeleton class="mb-2 h-4 w-24" /><Skeleton
+        class="mb-6 h-9 w-full"
+      /><Skeleton class="h-9 w-full rounded-full" />
+    </Card>
+  </main>
   <main v-else class="login-layout">
     <Card
       class="login-form gap-0 rounded-xl border shadow-none ring-0 py-0"
@@ -128,9 +134,13 @@ async function signIn() {
             v-model="password"
             type="password"
             autocomplete="new-password"
+            aria-describedby="new-password-hint"
             required
             minlength="12"
           />
+          <p id="new-password-hint" class="mt-2 mb-0 text-xs text-muted-foreground">
+            Al menos 12 caracteres.
+          </p>
           <Label class="mb-2 block" for="confirm-password">Confirmar contraseña</Label>
           <Input
             id="confirm-password"

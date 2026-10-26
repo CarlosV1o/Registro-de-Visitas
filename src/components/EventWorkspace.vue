@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import AdvisorRanking from "./AdvisorRanking.vue";
 import DataPagination from "@/components/DataPagination.vue";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import AppNotice from "@/components/AppNotice.vue";
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { z } from "zod";
 import { navigate } from "vike/client/router";
 import { getAttendance, getEmployees, getEvent } from "../lib/api";
 import { cache } from "../lib/cache";
+import { pendingPrefetch } from "../lib/prefetch";
 import { attendanceCsv, downloadCsv, makeCsv } from "../lib/csv";
 import { attendanceMetrics } from "../lib/metrics";
 import {
@@ -47,7 +49,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -57,7 +59,6 @@ import {
   TableHead,
   TableRow,
   TableCell,
-  TableCaption,
 } from "@/components/ui/table";
 import AppIcon from "./AppIcon.vue";
 import EventSettings from "./EventSettings.vue";
@@ -72,8 +73,12 @@ const exporting = ref(false);
 const error = ref("");
 const search = ref("");
 const moreFilters = ref(false);
-const advisorsOpen = ref(false);
 const advisor = ref<string | null>(null);
+
+const activeSection = ref<"attendance" | "ranking">(
+  !import.meta.env.SSR && window.location.hash === "#ranking" ? "ranking" : "attendance",
+);
+
 const status = ref<ReportStatus>("attended");
 const region = ref<string | null>(null);
 const plaza = ref<string | null>(null);
@@ -81,6 +86,7 @@ const sort = ref<ReportSort>("recent");
 const page = ref(1);
 const pageSize = ref(25);
 const synced = ref<Date | null>(null);
+
 let generation = 0;
 let inFlight = false;
 
@@ -98,10 +104,33 @@ const plazas = computed(() =>
 
 const attendanceTable = ref<HTMLElement | null>(null);
 
-function filterAdvisor(name: string) {
+function selectSection(event: MouseEvent, section: "attendance" | "ranking") {
+  if (
+    props.settings ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
+  event.preventDefault();
+  activeSection.value = section;
+  window.history.replaceState(
+    window.history.state,
+    "",
+    reportLink(props.eventId) + (section === "ranking" ? "#ranking" : ""),
+  );
+}
+
+async function filterAdvisor(name: string) {
+  resetFilters();
+  activeSection.value = "attendance";
+  window.history.replaceState(window.history.state, "", reportLink(props.eventId));
   advisor.value = name;
   status.value = "attended";
   search.value = "";
+  await nextTick();
   attendanceTable.value?.scrollIntoView({
     behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
     block: "start",
@@ -188,6 +217,12 @@ async function load() {
   const target = props.eventId;
   inFlight = true;
   loading.value = true;
+  const warming = event.value ? undefined : pendingPrefetch(target);
+
+  // Opening an event right after hovering it reuses that request instead of starting over.
+  if (warming) await warming;
+
+  if (request !== generation) return;
   // Show the last known data for this event immediately; the request below refreshes it.
   const cachedEvent = cache.event(target);
   const cachedAttendance = cache.attendance(target);
@@ -256,6 +291,7 @@ watch(
     generation++;
     inFlight = false;
     event.value = null;
+    activeSection.value = window.location.hash === "#ranking" ? "ranking" : "attendance";
     attendance.value = [];
     resetFilters();
     status.value = "attended";
@@ -296,16 +332,21 @@ onUnmounted(() => {
     </div>
     <Skeleton class="h-80" />
   </div>
-  <Card v-else-if="!event" class="empty-events gap-0 rounded-xl border shadow-none ring-0 py-0">
+  <Card
+    v-else-if="!event && !error"
+    class="empty-events gap-0 rounded-xl border shadow-none ring-0 items-center"
+  >
+    <span class="hero-icon"><AppIcon name="calendar" /></span>
     <h1>Evento no encontrado</h1>
-    <p class="muted">Comprueba el enlace o regresa a tus eventos.</p>
+    <p class="muted">Es posible que se haya eliminado o que el enlace esté incompleto.</p>
+    <Button variant="outline" as-child><a :href="appLink('admin')">Ver mis eventos</a></Button>
   </Card>
-  <template v-else>
+  <template v-else-if="event">
     <div class="page-heading event-page-heading">
       <div>
         <div class="event-title-row">
-          <Badge :variant="event.is_open ? 'secondary' : 'outline'">{{
-            event.is_open ? "Abierto" : "Cerrado"
+          <Badge :variant="event.is_open ? 'success' : 'outline'">{{
+            event.is_open ? "Registro abierto" : "Registro cerrado"
           }}</Badge>
         </div>
         <h1>{{ event.title }}</h1>
@@ -317,26 +358,64 @@ onUnmounted(() => {
         ></Button>
       </div>
     </div>
-    <NavigationMenu aria-label="Secciones del evento" class="event-navigation" :viewport="false"
-      ><NavigationMenuList
-        ><NavigationMenuItem
-          ><NavigationMenuLink class="flex-row items-center gap-2" as-child :active="!settings"
-            ><a :href="reportLink(event.id)" :aria-current="!settings ? 'page' : undefined"
-              ><AppIcon name="users" /> Asistencia
-              <Badge variant="secondary">{{ attendance.length }}</Badge></a
-            ></NavigationMenuLink
-          ></NavigationMenuItem
-        ><NavigationMenuItem
-          ><NavigationMenuLink class="flex-row items-center gap-2" as-child :active="settings"
-            ><a
-              :href="`${reportLink(event.id)}/configuracion`"
-              :aria-current="settings ? 'page' : undefined"
-              ><AppIcon name="settings" /> Configuración</a
-            ></NavigationMenuLink
-          ></NavigationMenuItem
-        ></NavigationMenuList
-      ></NavigationMenu
-    >
+    <div class="event-nav-row">
+      <NavigationMenu aria-label="Secciones del evento" class="event-navigation" :viewport="false"
+        ><NavigationMenuList class="flex-wrap justify-start"
+          ><NavigationMenuItem
+            ><NavigationMenuLink
+              class="flex-row items-center gap-2"
+              as-child
+              :active="!settings && activeSection === 'attendance'"
+              ><a
+                :href="reportLink(event.id)"
+                :aria-current="!settings && activeSection === 'attendance' ? 'page' : undefined"
+                @click="selectSection($event, 'attendance')"
+                ><AppIcon name="users" /> Asistencia
+                <Badge variant="secondary">{{ attendance.length }}</Badge></a
+              ></NavigationMenuLink
+            ></NavigationMenuItem
+          ><NavigationMenuItem
+            ><NavigationMenuLink
+              class="flex-row items-center gap-2"
+              as-child
+              :active="!settings && activeSection === 'ranking'"
+              ><a
+                :href="reportLink(event.id) + '#ranking'"
+                :aria-current="!settings && activeSection === 'ranking' ? 'page' : undefined"
+                @click="selectSection($event, 'ranking')"
+                ><AppIcon name="chart" /> Ranking por asesor</a
+              ></NavigationMenuLink
+            ></NavigationMenuItem
+          ><NavigationMenuItem
+            ><NavigationMenuLink class="flex-row items-center gap-2" as-child :active="settings"
+              ><a
+                :href="`${reportLink(event.id)}/configuracion`"
+                :aria-current="settings ? 'page' : undefined"
+                ><AppIcon name="settings" /> Configuración</a
+              ></NavigationMenuLink
+            ></NavigationMenuItem
+          ></NavigationMenuList
+        ></NavigationMenu
+      >
+      <div v-if="!settings" class="report-sync" aria-live="polite">
+        <span>{{
+          loading
+            ? "Actualizando…"
+            : synced
+              ? `Actualizado a las ${synced.toLocaleTimeString("es-MX", { timeStyle: "short" })}`
+              : "Sin actualizar"
+        }}</span
+        ><Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Actualizar ahora"
+          title="Actualizar ahora"
+          :disabled="loading"
+          @click="load"
+          ><AppIcon name="refresh" :class="{ 'animate-spin': loading }"
+        /></Button>
+      </div>
+    </div>
     <EventSettings
       v-if="settings"
       :event="event"
@@ -372,22 +451,18 @@ onUnmounted(() => {
           <p class="small muted">Empleados activos sin registro</p>
         </Card>
       </dl>
-      <div class="report-sync">
-        <span>{{
-          loading
-            ? "Actualizando…"
-            : synced
-              ? `Actualizado a las ${synced.toLocaleTimeString("es-MX", { timeStyle: "short" })}`
-              : "Sin actualizar"
-        }}</span
-        ><Button variant="outline" :disabled="loading" @click="load">Actualizar</Button>
-      </div>
+      <AdvisorRanking
+        v-if="activeSection === 'ranking'"
+        :groups="ranking"
+        :total="metrics.registered"
+        @select="filterAdvisor"
+      />
       <Card
-        ref="attendanceTable"
+        v-if="activeSection === 'attendance'"
         class="attendance-panel gap-0 rounded-xl border shadow-none ring-0 py-0"
         aria-labelledby="attendance-title"
       >
-        <div class="section-heading">
+        <div ref="attendanceTable" class="section-heading">
           <div>
             <h2 id="attendance-title">Lista de asistencia</h2>
             <p class="muted small">
@@ -524,7 +599,7 @@ onUnmounted(() => {
                 >{{ visible.length }} resultados<span v-if="advisor !== null">
                   · Asesor: <strong>{{ advisor || "Sin asesor" }}</strong></span
                 ></span
-              ><Button variant="outline" @click="resetFilters">Quitar filtro</Button>
+              ><Button variant="outline" size="sm" @click="resetFilters">Quitar filtros</Button>
             </div>
             <div class="table-scroll">
               <Table>
@@ -561,9 +636,11 @@ onUnmounted(() => {
                       }}
                     </TableCell>
                     <TableCell>
-                      <Badge :variant="entry.checked_in_at ? 'secondary' : 'outline'">{{
-                        entry.checked_in_at ? "Asistió" : "Pendiente"
-                      }}</Badge>
+                      <Badge :variant="entry.checked_in_at ? 'success' : 'outline'"
+                        ><AppIcon :name="entry.checked_in_at ? 'check' : 'pending'" />{{
+                          entry.checked_in_at ? "Asistió" : "Pendiente"
+                        }}</Badge
+                      >
                     </TableCell>
                   </TableRow>
                   <TableRow v-if="!visible.length">
@@ -587,6 +664,17 @@ onUnmounted(() => {
                               : "Comparte el enlace de registro. Las asistencias aparecerán aquí."
                         }}
                       </p>
+                      <div v-if="hasFilters" class="mt-4 flex justify-center">
+                        <Button variant="outline" size="sm" @click="resetFilters"
+                          >Quitar filtros</Button
+                        >
+                      </div>
+                      <div
+                        v-else-if="status !== 'pending' && !attendance.length"
+                        class="mt-4 flex justify-center"
+                      >
+                        <CopyEventLink :event-id="event.id" />
+                      </div>
                     </TableCell>
                   </TableRow>
                 </TableBody>
@@ -594,7 +682,8 @@ onUnmounted(() => {
             </div>
             <div class="table-pagination">
               <span
-                >{{ visible.length }} registros<span v-if="visible.length">
+                >{{ visible.length }} {{ visible.length === 1 ? "registro" : "registros"
+                }}<span v-if="visible.length">
                   · {{ (page - 1) * pageSize + 1 }}–{{
                     Math.min(page * pageSize, visible.length)
                   }}</span
@@ -657,53 +746,6 @@ onUnmounted(() => {
           ></Tabs
         >
       </Card>
-      <Card
-        v-if="attendance.length"
-        class="advisor-panel gap-0 rounded-xl border shadow-none ring-0 p-5"
-        ><Collapsible v-model:open="advisorsOpen">
-          <CollapsibleTrigger as-child
-            ><Button variant="ghost" class="advisor-toggle">
-              <AppIcon name="chart" /> Asistencia por asesor
-              <Badge variant="secondary">{{ ranking.length }}</Badge
-              ><AppIcon name="chevron" class="details-chevron" /> </Button></CollapsibleTrigger
-          ><CollapsibleContent>
-            <p class="small muted">Selecciona un asesor para filtrar sus registros.</p>
-            <div class="table-scroll advisor-summary">
-              <Table>
-                <TableCaption class="small muted">
-                  Cobertura de la base activa actual por asesor. Las asistencias conservan el asesor
-                  al registrarse.
-                </TableCaption>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Asesor</TableHead>
-                    <TableHead>Base activa</TableHead>
-                    <TableHead>Asistencias</TableHead>
-                    <TableHead>Pendientes</TableHead>
-                    <TableHead>Avance</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow v-for="group in ranking" :key="group.name">
-                    <TableCell>
-                      <Button
-                        variant="link"
-                        :aria-label="`${group.name || 'Sin asesor'} ${group.count} ${group.count === 1 ? 'asistencia' : 'asistencias'}`"
-                        @click="filterAdvisor(group.name)"
-                        >{{ group.name || "Sin asesor" }}</Button
-                      >
-                    </TableCell>
-                    <TableCell>{{ group.total }}</TableCell>
-                    <TableCell>{{ group.count }}</TableCell>
-                    <TableCell>{{ group.pending }}</TableCell>
-                    <TableCell>{{ group.percent }}%</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </CollapsibleContent></Collapsible
-        ></Card
-      >
     </template>
   </template>
 </template>

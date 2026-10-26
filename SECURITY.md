@@ -27,6 +27,10 @@ Estos ajustes pertenecen al proyecto remoto y no pueden imponerse desde una apli
 - Si la aplicación se abre dentro de un iframe, el layout no monta formularios ni controles administrativos. En hosting que admita encabezados HTTP, agrega también `Content-Security-Policy: frame-ancestors 'none'` y `X-Content-Type-Options: nosniff`. GitHub Pages no permite definir esos encabezados y `frame-ancestors` no funciona en una etiqueta meta.
 - El frontend no instala el CLI shadcn-vue y sus dependencias de transformación. Los componentes y CSS con licencia MIT están en `src/components/ui`.
 
+## Cotejo de identificación en sitio
+
+El modo en sitio usa una sesión con rol `admin`. Una sola acción registra el ingreso y muestra el nombre completo, ID y hora para el cotejo físico. La escritura y su respuesta están protegidas por `check_in`. No se conceden permisos nuevos a los roles anónimo o `staff`. Sin sesión administrativa, el formulario conserva la respuesta pública genérica.
+
 ## Alcance
 
 Un recibo genérico no prueba la identidad de la persona. El registro público sigue basado en un ID: alguien que conozca un ID válido podría registrar esa asistencia. Los límites reducen automatización y abuso; no sustituyen identificación individual o una verificación de presencia. Las respuestas uniformes tampoco prometen tiempo de ejecución constante ni protección completa frente a ataques distribuidos o de denegación de servicio.

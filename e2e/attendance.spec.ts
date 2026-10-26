@@ -70,6 +70,24 @@ async function backend(page: Page, role = "admin", isOpen = true) {
 
       if (event?.is_open && id === employee.id) present.add(target);
       body = { accepted: true };
+    } else if (path.endsWith("/check_in")) {
+      const { target_event: target, target_employee: id } = request.postDataJSON();
+      const event = events.find((entry) => entry.id === target);
+
+      if (role !== "admin" || !event?.is_open || id !== employee.id) {
+        await route.fulfill({
+          status: 400,
+          json: { code: "22023", message: "Invalid registration" },
+        });
+
+        return;
+      }
+
+      body = {
+        created: !present.has(target),
+        record: { ...employee, event_id: target, employee_id: id, checked_in_at: checkedAt },
+      };
+      present.add(target);
     } else if (path.endsWith("/delete_event")) {
       const target = request.postDataJSON().target_event;
       const index = events.findIndex((entry) => entry.id === target);
@@ -102,7 +120,12 @@ async function backend(page: Page, role = "admin", isOpen = true) {
           ? (events.find((event) => event.id === url.searchParams.get("id")?.replace("eq.", "")) ??
             null)
           : events;
-    } else if (path.endsWith("/employees")) body = [{ ...employee, active: true }];
+    } else if (path.endsWith("/employees"))
+      body = url.searchParams.has("id")
+        ? url.searchParams.get("id") === `eq.${employee.id}`
+          ? { id: employee.id, nombre: employee.nombre }
+          : null
+        : [{ ...employee, active: true }];
     else if (path.endsWith("/attendance")) {
       const target = url.searchParams.get("event_id")?.replace("eq.", "") ?? "";
       body = present.has(target)
@@ -133,8 +156,12 @@ async function login(page: Page, path = "admin") {
 async function register(page: Page, target = eventId) {
   await page.goto(`${base}eventos/${target}`);
   await page.getByLabel("Número de empleado", { exact: true }).fill(employee.id);
-  await page.getByRole("button", { name: "Registrar mi asistencia" }).click();
-  await expect(page.getByText("Solicitud recibida", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^(Registrar ingreso|Registrar mi asistencia)$/ }).click();
+  await expect(
+    page
+      .getByText("Solicitud recibida", { exact: true })
+      .or(page.getByLabel(`Bienvenido ${employee.nombre}`, { exact: true })),
+  ).toBeVisible();
 }
 
 test("event URLs open public registration and preserve leading zeroes", async ({ page }) => {
@@ -411,8 +438,22 @@ test("PoC totals and advisor ranking are event-specific and support missing-advi
       .locator("dd"),
   ).toHaveText("1");
   await expect(metrics.getByText("50% de la base activa")).toBeVisible();
-  await page.getByRole("button", { name: /Asistencia por asesor/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ranking de asistencia por asesor", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Ranking por asesor", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ranking de asistencia por asesor", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Lista de asistencia", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(metrics).toBeVisible();
+  await expect(
+    page.getByRole("progressbar", { name: "Asistencias de Ana", exact: true }),
+  ).toHaveAttribute("aria-valuetext", /50% del evento/);
   await expect(page.getByRole("button", { name: /Ana.*1 asistencia/ })).toBeVisible();
+  await page.screenshot({ path: "test-results/advisor-ranking-desktop.png", fullPage: true });
   await page.getByRole("button", { name: /Sin asesor.*1 asistencia/ }).click();
   await expect(page.getByRole("cell", { name: "Empleado inactivo", exact: true })).toBeVisible();
   await expect(page.getByRole("cell", { name: "María Prueba", exact: true })).toHaveCount(0);
@@ -436,7 +477,11 @@ test("PoC totals and advisor ranking are event-specific and support missing-advi
       .filter({ has: page.getByText("Pendientes", { exact: true }) })
       .locator("dd"),
   ).toHaveText("2");
-  await expect(page.locator(".advisor-panel")).toHaveCount(0);
+  await page.getByRole("link", { name: "Ranking por asesor", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Ranking de asistencia por asesor", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Aún no hay ingresos para comparar", { exact: true })).toBeVisible();
 });
 
 test("pending reports filter across employee fields and export a complete Excel workbook", async ({
@@ -785,4 +830,32 @@ test("visible form controls use the shared shadcn primitives", async ({ page }) 
     );
 
   expect(legacy).toEqual([]);
+});
+
+test("on-site registration welcomes the employee in one action without confirmation steps", async ({
+  page,
+}) => {
+  const calls = await backend(page);
+  await login(page);
+  await page.getByRole("heading", { name: "Reunión del equipo" }).getByRole("link").click();
+  await page.getByRole("link", { name: "Abrir registro", exact: true }).click();
+  const input = page.getByLabel("Número de empleado", { exact: true });
+  await input.fill(employee.id);
+  const inputBefore = await input.boundingBox();
+  await page.getByRole("button", { name: "Registrar ingreso", exact: true }).click();
+  const welcome = page.getByLabel(`Bienvenido ${employee.nombre}`, { exact: true });
+  await expect(welcome.getByRole("heading", { name: employee.nombre, exact: true })).toBeVisible();
+  await expect(welcome.getByText(employee.id, { exact: true })).toBeVisible();
+  const inputAfter = await input.boundingBox();
+  expect(Math.abs(inputAfter!.y - inputBefore!.y)).toBeLessThanOrEqual(1);
+  expect(calls.filter((path) => path.endsWith("/check_in"))).toHaveLength(1);
+  await expect(page.getByRole("button", { name: "Confirmar ingreso", exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Número de empleado", { exact: true })).toBeFocused();
+  await page.screenshot({ path: "test-results/on-site-welcome.png", fullPage: true });
+  await page.getByLabel("Número de empleado", { exact: true }).fill(employee.id);
+  await page.getByRole("button", { name: "Registrar ingreso", exact: true }).click();
+  await expect(page.getByText("Este empleado ya tenía su ingreso registrado.")).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/on-site-welcome-mobile.png", fullPage: true });
 });

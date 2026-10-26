@@ -34,6 +34,10 @@ watch(
   { immediate: true },
 );
 
+watch(title, () => {
+  message.value = "";
+});
+
 async function save(close: boolean, rename = true) {
   if (!props.event || busy.value) return;
 
@@ -42,9 +46,16 @@ async function save(close: boolean, rename = true) {
   message.value = "";
 
   try {
+    const reopening = !close && !props.event.is_open && !rename;
     await updateEvent(props.event.id, rename ? title.value.trim() : props.event.title, !close);
     confirmation.value = null;
-    message.value = "Evento actualizado.";
+    message.value = rename
+      ? "Nombre actualizado."
+      : close
+        ? "Registro cerrado. La asistencia se conserva y puedes reabrirlo cuando quieras."
+        : reopening
+          ? "Registro reabierto. El enlace vuelve a aceptar asistencias."
+          : "Evento actualizado.";
     cache.clear();
     emit("changed");
   } catch {
@@ -94,8 +105,9 @@ function confirmAction() {
       <Label class="mb-2 block" for="edit-title">Nombre del evento</Label
       ><Input id="edit-title" v-model="title" required maxlength="200" />
       <div class="actions">
-        <Button :disabled="busy || !title.trim() || title.trim() === event.title"
-          >Guardar nombre</Button
+        <Button :disabled="busy || !title.trim() || title.trim() === event.title">{{
+          busy ? "Guardando…" : "Guardar nombre"
+        }}</Button
         ><Button
           variant="outline"
           v-if="event.is_open"
