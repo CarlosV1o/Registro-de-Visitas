@@ -20,8 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
       - run: npm install -g npm@12.2.1
+        working-directory: ${{ runner.temp }}
       - run: npm ci
       - run: npm run check
       - run: npm test
