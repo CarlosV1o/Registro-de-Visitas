@@ -115,7 +115,7 @@ onUnmounted(() => {
         <div class="flex items-center gap-3">
           <SidebarTrigger aria-label="Mostrar navegación" /><Separator
             orientation="vertical"
-            class="h-4"
+            class="h-4 data-[orientation=vertical]:self-center"
           />
           <Breadcrumb
             ><BreadcrumbList
