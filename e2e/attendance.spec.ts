@@ -60,12 +60,13 @@ async function backend(page: Page, role = "admin", isOpen = true) {
   });
 }
 
-async function login(page: Page) {
+async function login(page: Page, expectReady = true) {
   await page.goto("/");
   await page.getByLabel("Correo electrónico").fill("operador@example.test");
   await page.getByLabel("Contraseña", { exact: true }).fill("example-test-password");
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
-  await expect(page.getByLabel("Número o nombre del empleado")).toBeEnabled();
+
+  if (expectReady) await expect(page.getByLabel("Número o nombre del empleado")).toBeEnabled();
 }
 
 test("focused registration, duplicate prevention and full CSV export", async ({ page }) => {
@@ -180,4 +181,42 @@ test("expired invite explains how to get another link", async ({ page }) => {
   );
   await expect(page.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
   expect(new URL(page.url()).hash).toBe("");
+});
+
+for (const [endpoint, code] of [
+  ["rpc/current_role", "PGRST202"],
+  ["events*", "PGRST205"],
+]) {
+  test(`missing database setup is explained for ${code}`, async ({ page }) => {
+    await backend(page);
+    await page.route(`https://attendance-test.supabase.co/rest/v1/${endpoint}`, (route) =>
+      route.fulfill({
+        status: 404,
+        json: { code, message: "Internal database details must not be shown" },
+      }),
+    );
+    await login(page, false);
+    await expect(page.getByRole("alert")).toHaveText(
+      "Falta preparar la base de datos. Pide al administrador que complete la instalación.",
+    );
+    await expect(page.getByText("Internal database details must not be shown")).toHaveCount(0);
+
+    if (code === "PGRST202")
+      await expect(page.getByLabel("Número o nombre del empleado")).toHaveCount(0);
+    else await expect(page.getByLabel("Número o nombre del empleado")).toBeDisabled();
+  });
+}
+
+test("a network failure keeps the connection message and supports retry", async ({ page }) => {
+  await backend(page);
+  await page.route("https://attendance-test.supabase.co/rest/v1/rpc/current_role", (route) =>
+    route.abort(),
+  );
+  await login(page, false);
+  await expect(page.getByRole("alert")).toHaveText(
+    "No se pudo sincronizar. Revisa la conexión y pulsa Actualizar.",
+  );
+  await page.unroute("https://attendance-test.supabase.co/rest/v1/rpc/current_role");
+  await page.getByRole("button", { name: "Volver a intentar" }).click();
+  await expect(page.getByLabel("Número o nombre del empleado")).toBeEnabled();
 });

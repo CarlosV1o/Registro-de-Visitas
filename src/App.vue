@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { z } from "zod";
 import type { Session, Subscription } from "@supabase/supabase-js";
 import LoginPanel from "./components/LoginPanel.vue";
 import EmployeeImport from "./components/EmployeeImport.vue";
@@ -153,10 +154,17 @@ async function refresh(includeEmployees = true) {
     attendance.value = newAttendance;
     error.value = "";
     lastSync.value = new Date();
-  } catch {
+  } catch (cause) {
     if (request === generation) {
-      error.value =
-        "No se pudo sincronizar. Revisa la conexión o la configuración de Supabase y pulsa Actualizar.";
+      const missingSchema = z
+        .object({
+          code: z.enum(["PGRST202", "PGRST205", "42P01", "42883"]),
+        })
+        .safeParse(cause).success;
+
+      error.value = missingSchema
+        ? "Falta preparar la base de datos. Pide al administrador que complete la instalación."
+        : "No se pudo sincronizar. Revisa la conexión y pulsa Actualizar.";
       lastSync.value = null;
     }
   } finally {
