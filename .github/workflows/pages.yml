@@ -28,6 +28,11 @@ jobs:
       - run: npm run test:db
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:static
+      - name: Verify production registration API
+        run: node scripts/check-deployment.mjs
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
       - run: npm run build
         env:
           DEPLOY_BASE: /Registro-de-Visitas/

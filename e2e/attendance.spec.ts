@@ -617,9 +617,19 @@ test("search fields leave room for icons and select menus stay below their trigg
     });
 
   expect(outlineWidth).toBeLessThan(3);
-  const triggerBox = await trigger.boundingBox();
-  const contentBox = await page.getByRole("listbox").boundingBox();
-  expect(contentBox!.y).toBeGreaterThanOrEqual(triggerBox!.y + triggerBox!.height);
+  // Read geometry after the opening animation reaches its final position.
+  await expect
+    .poll(async () => {
+      const [triggerBox, contentBox] = await Promise.all([
+        trigger.boundingBox(),
+        page.getByRole("listbox").boundingBox(),
+      ]);
+
+      if (!triggerBox || !contentBox) return -1;
+
+      return contentBox.y - triggerBox.y - triggerBox.height;
+    })
+    .toBeGreaterThanOrEqual(0);
   await page.screenshot({ path: "test-results/event-status-menu.png", fullPage: true });
   await page.keyboard.press("Escape");
   await expect(trigger).toBeFocused();
