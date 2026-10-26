@@ -1,4 +1,5 @@
 import vue from "@vitejs/plugin-vue";
+import vike from "vike/plugin";
 import { defineConfig } from "vite-plus";
 
 const agentFiles = [
@@ -16,9 +17,11 @@ const agentFiles = [
   "tools/oxlint/anti-slop/**",
 ];
 
+const appCommand = ["dev", "build", "preview"].includes(process.argv[2] ?? "");
+
 export default defineConfig({
-  base: "./",
-  plugins: [vue()],
+  base: process.env.DEPLOY_BASE || "/",
+  plugins: [vue(), ...(appCommand ? [vike()] : [])],
   fmt: { ignorePatterns: agentFiles },
   lint: {
     ignorePatterns: [...agentFiles, "dist/**"],

@@ -12,11 +12,14 @@
     "lint": "vp lint",
     "test": "vp test",
     "test:db": "bash scripts/test-db.sh",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:static": "node scripts/test-static.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
     "papaparse": "^5.7.0",
+    "vike": "^0.4.268",
+    "vike-vue": "^0.9.16",
     "vue": "^3.5.44",
     "zod": "^4.6.7"
   },

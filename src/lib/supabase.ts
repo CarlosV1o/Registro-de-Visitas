@@ -12,13 +12,29 @@ const configuration = z
   });
 
 // Capture the link type before the auth client consumes and clears the URL fragment.
-const linkType = new URLSearchParams(window.location.hash.slice(1)).get("type");
+const linkParameters = new URLSearchParams(
+  import.meta.env.SSR ? "" : window.location.hash.slice(1),
+);
 
-export const passwordSetupRequested = linkType === "invite" || linkType === "recovery";
+const linkType = linkParameters.get("type");
+
+let passwordSetupRequested = linkType === "invite" || linkType === "recovery";
+
+export function consumePasswordSetupRequest() {
+  const requested = passwordSetupRequested;
+  passwordSetupRequested = false;
+
+  return requested;
+}
 
 export const supabase = configuration.success
   ? createClient(configuration.data.url, configuration.data.key, {
-      auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: true },
+      auth: {
+        persistSession: true,
+        storage: import.meta.env.SSR ? undefined : window.sessionStorage,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
     })
   : null;
 

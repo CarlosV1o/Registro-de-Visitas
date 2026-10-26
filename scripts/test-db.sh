@@ -25,19 +25,21 @@ grant execute on function auth.uid() to authenticated;
 SQL
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260001_attendance.sql
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-db.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260002_event_links.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260003_delete_event.sql
+psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-event-links.sql
 
 # Both callers must observe the same row, with exactly one insert winning.
 for caller in 1 2; do
   psql -X -v ON_ERROR_STOP=1 -qAt >"$test_cluster/checkin-$caller" <<'SQL' &
-set role authenticated;
-set request.jwt.claim.sub = '22222222-2222-4222-8222-222222222222';
-select public.check_in('11111111-1111-4111-8111-111111111111', '004509')->>'created';
+set role anon;
+select public.register_attendance('11111111-1111-4111-8111-111111111111', '004509')->>'created';
 SQL
 done
 wait
 psql -X -v ON_ERROR_STOP=1 -qAt <<'SQL'
 do $$ begin
-  if (select count(*) from public.attendance) <> 1 then raise exception 'Concurrent check-ins created duplicates'; end if;
+  if (select count(*) from public.attendance where event_id = '11111111-1111-4111-8111-111111111111') <> 1 then raise exception 'Concurrent check-ins created duplicates'; end if;
 end $$;
 SQL
 if [[ $(cat "$test_cluster/checkin-1" "$test_cluster/checkin-2" | sort | tr '\n' ' ') != 'false true ' ]]; then

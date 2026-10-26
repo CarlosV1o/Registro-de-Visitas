@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { createEvent, updateEvent } from "../lib/api";
+import { deleteEvent, updateEvent } from "../lib/api";
 import type { AttendanceEvent } from "../lib/models";
 
 const props = defineProps<{ event: AttendanceEvent | null }>();
-const emit = defineEmits<{ changed: [] }>();
-const newTitle = ref("");
+const emit = defineEmits<{ changed: []; deleted: [] }>();
 const title = ref("");
 const busy = ref(false);
 const message = ref("");
@@ -18,23 +17,6 @@ watch(
   },
   { immediate: true },
 );
-
-async function create() {
-  busy.value = true;
-  error.value = "";
-  message.value = "";
-
-  try {
-    await createEvent(newTitle.value.trim());
-    newTitle.value = "";
-    message.value = "Evento creado. Selecciónalo en la parte superior para registrar ingresos.";
-    emit("changed");
-  } catch {
-    error.value = "No se pudo crear el evento. Revisa la conexión y tus permisos.";
-  } finally {
-    busy.value = false;
-  }
-}
 
 async function save(close: boolean) {
   if (!props.event) return;
@@ -61,29 +43,39 @@ async function save(close: boolean) {
     busy.value = false;
   }
 }
+
+async function remove() {
+  if (!props.event || busy.value) return;
+
+  if (
+    !window.confirm(
+      `¿Eliminar «${props.event.title}» y toda su asistencia? Esta acción no se puede deshacer.`,
+    )
+  )
+    return;
+
+  busy.value = true;
+  error.value = "";
+  message.value = "";
+
+  try {
+    await deleteEvent(props.event.id);
+    emit("deleted");
+  } catch {
+    error.value = "No se pudo eliminar el evento. Revisa tu conexión y tus permisos.";
+  } finally {
+    busy.value = false;
+  }
+}
 </script>
 
 <template>
   <section class="panel settings-panel">
-    <h2>Administrar eventos</h2>
+    <h2>Configuración del evento</h2>
     <p class="muted">
-      Crea un evento nuevo para empezar con asistencia vacía. El historial de los anteriores se
-      conserva.
+      Actualiza el nombre o cierra el registro. El enlace y la asistencia se conservan.
     </p>
-    <form @submit.prevent="create">
-      <label for="new-event">Nombre del nuevo evento</label>
-      <div class="inline-form">
-        <input
-          id="new-event"
-          v-model="newTitle"
-          required
-          maxlength="200"
-          placeholder="Ej. Reunión de octubre"
-        /><button class="primary" :disabled="busy">Crear evento</button>
-      </div>
-    </form>
-    <form v-if="event" class="divider" @submit.prevent="save(!event.is_open)">
-      <h3>Evento seleccionado</h3>
+    <form v-if="event" @submit.prevent="save(!event.is_open)">
       <label for="edit-title">Nombre del evento</label
       ><input id="edit-title" v-model="title" required maxlength="200" />
       <div class="actions">
@@ -99,6 +91,14 @@ async function save(close: boolean) {
         ><button v-else type="button" :disabled="busy" @click="save(false)">Reabrir evento</button>
       </div>
     </form>
+    <section v-if="event" class="danger-zone" aria-labelledby="delete-event-title">
+      <h3 id="delete-event-title">Eliminar evento</h3>
+      <p>
+        Se eliminarán este evento y todos sus registros de asistencia. Los empleados y los demás
+        eventos se conservan.
+      </p>
+      <button class="danger" type="button" :disabled="busy" @click="remove">Eliminar evento</button>
+    </section>
     <p v-if="error" role="alert" class="notice error">{{ error }}</p>
     <p v-if="message" role="status" class="notice success">{{ message }}</p>
   </section>

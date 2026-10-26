@@ -1,6 +1,21 @@
 # Registro de asistencia
 
-Aplicación en español con Vue 3, TypeScript, Vite+ y Supabase. La pantalla principal permite buscar un empleado y registrar su asistencia. La lista y la descarga CSV están en **Ver asistencia**; importar empleados y administrar eventos requiere una cuenta de administrador.
+Herramienta interna en español con Vue 3, Vike, TypeScript, Vite+ y Supabase. Cada evento tiene su propio enlace público de registro y su propio informe privado de asistencia. La página principal abre el inicio de sesión de administración.
+
+## Rutas
+
+| URL                                | Acceso           | Función                                                        |
+| ---------------------------------- | ---------------- | -------------------------------------------------------------- |
+| `/`                                | Inicio de sesión | Acceso de administradores y enlaces de invitación/recuperación |
+| `/admin`                           | Administrador    | Crear eventos, copiar enlaces y abrir informes                 |
+| `/admin/empleados`                 | Administrador    | Importar y exportar la base de empleados                       |
+| `/eventos/:id`                     | Público          | Registrar asistencia con número de empleado                    |
+| `/admin/eventos/:id`               | Administrador    | Consultar y exportar la asistencia de ese evento               |
+| `/admin/eventos/:id/configuracion` | Administrador    | Cambiar nombre, cerrar, reabrir o eliminar el evento           |
+
+El identificador UUID del enlace determina el evento. Un enlace inválido muestra un error y nunca selecciona otro evento. Cada registro y exportación usa el identificador de la ruta. El enlace permanece igual cuando se cambia el nombre del evento.
+
+La base de empleados es compartida entre eventos. La asistencia se guarda por evento con una copia de los datos del empleado al registrarse, de modo que las importaciones posteriores no cambian el historial. Un empleado puede registrarse en varios eventos, una sola vez en cada uno.
 
 ## Desarrollo
 
@@ -12,30 +27,32 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` en `.env.local`. Usa únicamente la clave **publishable** (`sb_publishable_…`). Nunca incluyas claves privilegiadas, contraseñas ni datos reales en el repositorio.
+Configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` en `.env.local`. Usa únicamente la clave publicable (`sb_publishable_…`). No incluyas claves privilegiadas, contraseñas ni datos reales en el repositorio. El navegador solo recibe las dos variables con prefijo `VITE_`.
 
 ## Configurar Supabase
 
-1. Ejecuta `supabase/migrations/202610260001_attendance.sql` en el editor SQL de un proyecto nuevo de Supabase.
-2. En Authentication → URL Configuration, configura **Site URL** y la lista **Redirect URLs** con `https://carlosv1o.github.io/Registro-de-Visitas/` (o la dirección real donde publiques la página). El valor predeterminado localhost no sirve para las invitaciones en producción. Habilita GitHub Pages antes de usar esa dirección.
-3. Crea las cuentas de los operadores en Authentication. No hay registro público en esta aplicación. Los enlaces de invitación y recuperación abren una pantalla para definir la contraseña. Si un enlace anterior ya se consumió, envía uno nuevo desde Supabase después de corregir las URLs.
-4. Asigna el rol desde el editor SQL, sustituyendo el UUID por el identificador de la cuenta:
+1. En un proyecto nuevo, ejecuta las migraciones de `supabase/migrations/` en orden. Si ya existe la primera migración, ejecuta las migraciones posteriores en orden para habilitar las rutas públicas, limitar los informes a administradores y permitir eliminar eventos. La migración conserva los datos existentes.
+2. En Authentication → URL Configuration, configura **Site URL** y **Redirect URLs** con la URL publicada, por ejemplo `https://carlosv1o.github.io/Registro-de-Visitas/`. Usa un enlace nuevo si la invitación anterior ya se consumió. La aplicación incluye la pantalla para establecer la contraseña de invitaciones y recuperación.
+3. Crea las cuentas de administradores en Authentication. No hay registro público de cuentas.
+4. Asigna el rol usando el UUID de cada cuenta:
 
 ```sql
 insert into private.memberships (user_id, role)
-values ('UUID-DE-LA-CUENTA', 'admin');
--- Usa 'staff' para operadores que solo registran y consultan asistencia.
+values ('UUID-DE-LA-CUENTA', 'admin')
+on conflict (user_id) do update set role = excluded.role;
 ```
 
-5. Inicia sesión, entra en Administración, crea un evento e importa la hoja Base como CSV UTF-8.
+5. Inicia sesión, importa la base de empleados y crea un evento. Copia el enlace del evento para compartir su registro.
 
-La base controla los permisos con políticas de Postgres. Solo la función de registro puede escribir asistencia; toma la hora y los datos del empleado desde la base. La clave única por evento y empleado evita duplicados, incluso con registros simultáneos. Cerrar un evento conserva su historial. La sesión se guarda solo en memoria y termina al recargar o cerrar la página.
+Las políticas de Postgres protegen los empleados, la administración y los informes. Las cuentas sin rol de administrador, incluidas las antiguas cuentas `staff`, no pueden leer esos datos. El acceso público solo permite consultar el título y estado de un evento por UUID, y registrar un número de empleado exacto. No ofrece búsquedas de empleados, directorio de eventos ni listas de asistencia. La respuesta pública es un recibo con nombre y hora; los demás detalles permanecen privados.
+
+Una función privada realiza la escritura con bloqueo del evento y una clave única por evento y empleado. La hora y los datos provienen del servidor. Cerrar un evento conserva el historial y rechaza nuevos registros. Eliminarlo requiere confirmación y borra su asistencia en una transacción protegida por permisos de administrador, sin modificar otros eventos ni la base de empleados. Las sesiones administrativas se guardan en `sessionStorage`: sobreviven a la recarga de la página en la misma pestaña. Cerrar la pestaña o cerrar sesión elimina el acceso guardado.
 
 ## Archivos
 
-La base de empleados conserva el orden `ID, Nombre, Tienda, Plaza, Región, Asesor, Posición`. `Activo` es una columna opcional. Los IDs son texto y conservan sus ceros iniciales; configura la columna como texto al abrir el CSV en una hoja de cálculo. Se valida todo el archivo antes de guardarlo. Los registros ausentes del archivo no se eliminan.
+La base de empleados conserva el orden `ID, Nombre, Tienda, Plaza, Región, Asesor, Posición`. `Activo` es opcional. Los IDs son texto y conservan sus ceros iniciales; configura esa columna como texto al abrir el CSV. Se valida todo el archivo antes de guardarlo. Los empleados ausentes del archivo no se eliminan.
 
-La exportación de asistencia conserva las columnas originales `ID_Empleado, Nombre, Tienda, Plaza, Región, Asesor, Posición, Hora_Registro`. Incluye todo el evento aunque la lista esté filtrada, con fecha ISO y zona horaria. Los campos importados se muestran como texto.
+La exportación conserva `ID_Empleado, Nombre, Tienda, Plaza, Región, Asesor, Posición, Hora_Registro`. Incluye toda la asistencia del evento de la URL, incluso con filtros activos, con fecha ISO y zona horaria. Los datos importados se muestran como texto.
 
 ## Verificación
 
@@ -44,18 +61,19 @@ npm run check
 npm test
 npx playwright install chromium
 npm run test:e2e
+npm run test:e2e:static
 npm run test:db
 npm run build
 ```
 
-Las pruebas del navegador interceptan las peticiones a un proyecto ficticio y no usan datos reales. Las pruebas de base requieren PostgreSQL instalado (`initdb`, `pg_ctl`, `psql`, `pg_config`) y un usuario sin privilegios de root; crean y eliminan un clúster temporal. Verifican permisos, importaciones atómicas y registros simultáneos.
+Las pruebas del navegador interceptan peticiones a un proyecto ficticio. Verifican registro público, autenticación de administradores, eventos separados, exportaciones, enlaces directos, configuración, invitaciones y pantallas móviles. Las pruebas estáticas también simulan el comportamiento de GitHub Pages bajo `/Registro-de-Visitas/`, incluidos los enlaces a eventos creados después de compilar.
+
+Las pruebas de base requieren PostgreSQL (`initdb`, `pg_ctl`, `psql`, `pg_config`) y un usuario sin privilegios de root. Usan un clúster temporal para comprobar permisos, importaciones atómicas, registros simultáneos y separación por evento. No modifican el proyecto real.
 
 ## GitHub Pages
 
-La acción `.github/workflows/pages.yml` valida y publica cada push a `main`.
+La acción `.github/workflows/pages.yml` valida y publica cada push a `main`. Selecciona **GitHub Actions** como fuente en Settings → Pages y configura las variables de Actions `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`.
 
-1. Selecciona **GitHub Actions** como fuente en Settings → Pages.
-2. En Settings → Secrets and variables → Actions → Variables, agrega `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`.
-3. Ejecuta **Check and publish attendance** o publica un nuevo commit para reconstruir la página.
+La compilación usa `DEPLOY_BASE=/Registro-de-Visitas/` y publica `dist/client/`. Vike genera las páginas estáticas de inicio y administración. `404.html` recupera las rutas dinámicas de eventos con el enrutador del cliente, de modo que los enlaces nuevos no requieren recompilar. GitHub Pages devuelve HTTP 404 para esa primera petición dinámica; la aplicación muestra el evento solicitado y conserva su URL. Los datos se consultan en Supabase y no se incluyen en el HTML generado.
 
-Sin esas variables se publica una pantalla que indica que falta la configuración; no permite registrar asistencia. La URL prevista es https://carlosv1o.github.io/Registro-de-Visitas/.
+Para otro dominio o subdirectorio, ajusta `DEPLOY_BASE` y la configuración de URLs de Supabase. Sin las variables de Supabase, la app indica que falta configuración y no permite registrar.

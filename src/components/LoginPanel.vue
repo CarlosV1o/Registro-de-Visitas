@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { client, supabase, passwordSetupRequested } from "../lib/supabase";
+import BrandMark from "./BrandMark.vue";
+import AppIcon from "./AppIcon.vue";
+import { appLink } from "../lib/links";
+import { client, supabase, consumePasswordSetupRequest } from "../lib/supabase";
 
 const emit = defineEmits<{ signedIn: [] }>();
 const email = ref("");
@@ -8,6 +11,9 @@ const password = ref("");
 const busy = ref(false);
 const error = ref("");
 const checkingLink = ref(true);
+
+// Only the first mount consumes an invitation/recovery callback.
+const pendingPasswordSetup = consumePasswordSetupRequest();
 const settingPassword = ref(false);
 const confirmation = ref("");
 
@@ -27,7 +33,7 @@ onMounted(async () => {
 
     if (result.error) throw result.error;
 
-    if (passwordSetupRequested) {
+    if (pendingPasswordSetup) {
       if (!result.data.session) throw new Error("Missing invite session");
 
       settingPassword.value = true;
@@ -97,7 +103,7 @@ async function signIn() {
 <template>
   <main class="login-layout">
     <section class="panel login-form" aria-labelledby="login-title">
-      <p class="login-brand">Asistencia</p>
+      <BrandMark /><span class="login-lock"><AppIcon name="lock" /></span>
       <p v-if="checkingLink" role="status">Comprobando sesión…</p>
       <template v-else-if="supabase && settingPassword">
         <h1 id="login-title">Crear contraseña</h1>
@@ -129,7 +135,7 @@ async function signIn() {
       </template>
       <template v-else-if="supabase">
         <h1 id="login-title">Iniciar sesión</h1>
-        <p class="muted">Ingresa para registrar la asistencia.</p>
+        <p class="muted">Accede para administrar tus eventos y consultar la asistencia.</p>
         <form @submit.prevent="signIn">
           <label for="email">Correo electrónico</label>
           <input
@@ -159,6 +165,7 @@ async function signIn() {
           registro.
         </p>
       </template>
+      <a :href="appLink()" class="login-back">Volver al inicio</a>
     </section>
   </main>
 </template>
