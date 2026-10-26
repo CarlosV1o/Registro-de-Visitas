@@ -17,8 +17,9 @@ Configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` en `.env.local`.
 ## Configurar Supabase
 
 1. Ejecuta `supabase/migrations/202610260001_attendance.sql` en el editor SQL de un proyecto nuevo de Supabase.
-2. Crea las cuentas de los operadores en Authentication. No hay registro público en esta aplicación.
-3. Asigna el rol desde el editor SQL, sustituyendo el UUID por el identificador de la cuenta:
+2. En Authentication → URL Configuration, configura **Site URL** y la lista **Redirect URLs** con `https://carlosv1o.github.io/Registro-de-Visitas/` (o la dirección real donde publiques la página). El valor predeterminado localhost no sirve para las invitaciones en producción. Habilita GitHub Pages antes de usar esa dirección.
+3. Crea las cuentas de los operadores en Authentication. No hay registro público en esta aplicación. Los enlaces de invitación y recuperación abren una pantalla para definir la contraseña. Si un enlace anterior ya se consumió, envía uno nuevo desde Supabase después de corregir las URLs.
+4. Asigna el rol desde el editor SQL, sustituyendo el UUID por el identificador de la cuenta:
 
 ```sql
 insert into private.memberships (user_id, role)
@@ -26,7 +27,7 @@ values ('UUID-DE-LA-CUENTA', 'admin');
 -- Usa 'staff' para operadores que solo registran y consultan asistencia.
 ```
 
-4. Inicia sesión, entra en Administración, crea un evento e importa la hoja Base como CSV UTF-8.
+5. Inicia sesión, entra en Administración, crea un evento e importa la hoja Base como CSV UTF-8.
 
 La base controla los permisos con políticas de Postgres. Solo la función de registro puede escribir asistencia; toma la hora y los datos del empleado desde la base. La clave única por evento y empleado evita duplicados, incluso con registros simultáneos. Cerrar un evento conserva su historial. La sesión se guarda solo en memoria y termina al recargar o cerrar la página.
 

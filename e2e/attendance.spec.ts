@@ -36,6 +36,8 @@ async function backend(page: Page, role = "admin", isOpen = true) {
         token_type: "bearer",
         user: { id: eventId, email: "operador@example.test", aud: "authenticated" },
       };
+    else if (path.endsWith("/user"))
+      body = { id: eventId, email: "operador@example.test", aud: "authenticated" };
     else if (path.endsWith("/current_role")) body = role;
     else if (path.endsWith("/events"))
       body = [
@@ -141,4 +143,41 @@ test("admin tools stay separate and mobile screens do not overflow", async ({ pa
   await expect(page.getByRole("heading", { name: "Administrar eventos" })).toBeVisible();
   await page.getByRole("button", { name: "Volver al registro" }).click();
   await expect(page.getByLabel("Número o nombre del empleado")).toBeVisible();
+});
+
+for (const type of ["invite", "recovery"]) {
+  test(`${type} link sets a password before opening attendance`, async ({ page }) => {
+    await backend(page);
+    await page.goto(
+      "/#access_token=browser-test-token&refresh_token=test-refresh&expires_in=3600&token_type=bearer&type=" +
+        type,
+    );
+    await expect(page.getByRole("heading", { name: "Crear contraseña" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Registrar asistencia" })).toHaveCount(0);
+    expect(new URL(page.url()).hash).toBe("");
+    await page.getByLabel("Nueva contraseña", { exact: true }).fill("synthetic-password");
+    await page.getByLabel("Confirmar contraseña").fill("different-password");
+    await page.getByRole("button", { name: "Guardar y entrar" }).click();
+    await expect(page.getByRole("alert")).toHaveText("Las contraseñas no coinciden.");
+    await page.getByLabel("Confirmar contraseña").fill("synthetic-password");
+
+    const saving = page.waitForRequest(
+      (request) => request.url().endsWith("/auth/v1/user") && request.method() === "PUT",
+    );
+
+    await page.getByRole("button", { name: "Guardar y entrar" }).click();
+    expect((await saving).postDataJSON()).toMatchObject({ password: "synthetic-password" });
+    await expect(page.getByRole("heading", { name: "Registrar asistencia" })).toBeVisible();
+  });
+}
+
+test("expired invite explains how to get another link", async ({ page }) => {
+  await page.goto(
+    "/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired",
+  );
+  await expect(page.getByRole("alert")).toHaveText(
+    "El enlace no es válido o venció. Solicita un nuevo enlace al administrador.",
+  );
+  await expect(page.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
 });

@@ -11,9 +11,14 @@ const configuration = z
     key: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
   });
 
+// Capture the link type before the auth client consumes and clears the URL fragment.
+const linkType = new URLSearchParams(window.location.hash.slice(1)).get("type");
+
+export const passwordSetupRequested = linkType === "invite" || linkType === "recovery";
+
 export const supabase = configuration.success
   ? createClient(configuration.data.url, configuration.data.key, {
-      auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false },
+      auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: true },
     })
   : null;
 
