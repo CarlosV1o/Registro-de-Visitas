@@ -16,6 +16,7 @@
     "test:e2e:static": "node scripts/test-static.mjs"
   },
   "dependencies": {
+    "@lucide/vue": "^1.61.0",
     "@supabase/supabase-js": "^2.118.0",
     "papaparse": "^5.7.0",
     "vike": "^0.4.268",

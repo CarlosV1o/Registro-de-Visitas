@@ -4,7 +4,8 @@ import { z } from "zod";
 import { navigate } from "vike/client/router";
 import { getAttendance, getEmployees, getEvent } from "../lib/api";
 import { attendanceCsv, downloadCsv } from "../lib/csv";
-import type { Attendance, AttendanceEvent } from "../lib/models";
+import { attendanceMetrics, attendanceByAdvisor } from "../lib/metrics";
+import type { Attendance, AttendanceEvent, Employee } from "../lib/models";
 import { appLink, eventLink, reportLink } from "../lib/links";
 import AppIcon from "./AppIcon.vue";
 import EventSettings from "./EventSettings.vue";
@@ -13,27 +14,34 @@ import CopyEventLink from "./CopyEventLink.vue";
 const props = defineProps<{ eventId: string; settings?: boolean }>();
 const event = ref<AttendanceEvent | null>(null);
 const attendance = ref<Attendance[]>([]);
-const employeeCount = ref(0);
+const employees = ref<Employee[]>([]);
 const loading = ref(true);
 const exporting = ref(false);
 const error = ref("");
 const search = ref("");
-const advisor = ref("");
+const advisor = ref<string | null>(null);
 const synced = ref<Date | null>(null);
 let generation = 0;
 let inFlight = false;
 
-const advisors = computed(() =>
-  [...new Set(attendance.value.map((entry) => entry.asesor))].sort((a, b) =>
-    a.localeCompare(b, "es"),
-  ),
-);
+const metrics = computed(() => attendanceMetrics(employees.value, attendance.value));
+const ranking = computed(() => attendanceByAdvisor(attendance.value));
+const attendanceTable = ref<HTMLElement | null>(null);
+
+function filterAdvisor(name: string) {
+  advisor.value = name;
+  search.value = "";
+  attendanceTable.value?.scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+    block: "start",
+  });
+}
 
 const visible = computed(() =>
   attendance.value
     .filter(
       (entry) =>
-        (!advisor.value || entry.asesor === advisor.value) &&
+        (advisor.value === null || entry.asesor.trim() === advisor.value) &&
         `${entry.employee_id} ${entry.nombre}`
           .toLocaleLowerCase("es")
           .includes(search.value.trim().toLocaleLowerCase("es")),
@@ -52,7 +60,7 @@ async function load() {
   try {
     if (!z.uuid().safeParse(target).success) return;
 
-    const [selected, entries, employees] = await Promise.all([
+    const [selected, entries, employeeRows] = await Promise.all([
       getEvent(target),
       getAttendance(target),
       getEmployees(),
@@ -61,7 +69,7 @@ async function load() {
     if (request !== generation) return;
     event.value = selected;
     attendance.value = entries;
-    employeeCount.value = employees.filter((employee) => employee.active).length;
+    employees.value = employeeRows;
     synced.value = new Date();
   } catch {
     if (request === generation) {
@@ -102,7 +110,8 @@ watch(
     event.value = null;
     attendance.value = [];
     search.value = "";
-    advisor.value = "";
+    advisor.value = null;
+    employees.value = [];
     synced.value = null;
     void load();
   },
@@ -161,30 +170,63 @@ onUnmounted(() => {
       @deleted="navigate(appLink('admin'))"
     />
     <template v-else>
-      <div class="report-overview">
-        <div>
-          <span class="overview-icon"><AppIcon name="users" /></span>
-          <div>
-            <strong>{{ attendance.length }}</strong
-            ><span>Asistencias registradas</span>
-          </div>
+      <dl class="event-metrics" aria-label="Resumen del evento">
+        <div class="metric-card">
+          <dt><AppIcon name="users" /> Empleados activos</dt>
+          <dd>{{ metrics.total }}</dd>
+          <p class="small muted">Base de empleados</p>
         </div>
-        <div class="overview-total">
-          <strong>{{ employeeCount }}</strong
-          ><span>Empleados activos en la base</span>
+        <div class="metric-card metric-attended">
+          <dt><AppIcon name="attended" /> Asistencias registradas</dt>
+          <dd>{{ metrics.registered }}</dd>
+          <p class="small muted">
+            {{
+              metrics.total
+                ? `${metrics.percent}% de la base activa`
+                : "Sin empleados activos en la base"
+            }}
+          </p>
         </div>
-        <div class="report-sync">
-          <span>{{
-            loading
-              ? "Actualizando…"
-              : synced
-                ? `Actualizado a las ${synced.toLocaleTimeString("es-MX", { timeStyle: "short" })}`
-                : "Sin actualizar"
-          }}</span
-          ><button :disabled="loading" @click="load">Actualizar</button>
+        <div class="metric-card">
+          <dt><AppIcon name="pending" /> Pendientes</dt>
+          <dd>{{ metrics.pending }}</dd>
+          <p class="small muted">Empleados activos sin registro</p>
         </div>
+      </dl>
+      <div class="report-sync">
+        <span>{{
+          loading
+            ? "Actualizando…"
+            : synced
+              ? `Actualizado a las ${synced.toLocaleTimeString("es-MX", { timeStyle: "short" })}`
+              : "Sin actualizar"
+        }}</span
+        ><button :disabled="loading" @click="load">Actualizar</button>
       </div>
-      <section class="panel attendance-panel" aria-labelledby="attendance-title">
+      <details v-if="ranking.length" class="panel advisor-panel" :open="ranking.length <= 5">
+        <summary>
+          <AppIcon name="chart" /> Asistencia por asesor
+          <span class="count">{{ ranking.length }}</span
+          ><AppIcon name="chevron" class="details-chevron" />
+        </summary>
+        <p class="small muted">Selecciona un asesor para filtrar sus registros.</p>
+        <ol class="advisor-ranking">
+          <li v-for="(group, index) in ranking" :key="group.name">
+            <button :aria-pressed="advisor === group.name" @click="filterAdvisor(group.name)">
+              <span class="advisor-position">{{ index + 1 }}</span
+              ><span class="advisor-name">{{ group.name || "Sin asesor" }}</span
+              ><strong
+                >{{ group.count }} {{ group.count === 1 ? "asistencia" : "asistencias" }}</strong
+              ><AppIcon name="arrow" />
+            </button>
+          </li>
+        </ol>
+      </details>
+      <section
+        ref="attendanceTable"
+        class="panel attendance-panel"
+        aria-labelledby="attendance-title"
+      >
         <div class="section-heading">
           <div>
             <h2 id="attendance-title">Lista de asistencia</h2>
@@ -204,11 +246,16 @@ onUnmounted(() => {
             />
           </div>
           <select v-model="advisor" aria-label="Filtrar por asesor">
-            <option value="">Todos los asesores</option>
-            <option v-for="name in advisors" :key="name" :value="name">
-              {{ name || "Sin asesor" }}
+            <option :value="null">Todos los asesores</option>
+            <option v-for="group in ranking" :key="group.name" :value="group.name">
+              {{ group.name || "Sin asesor" }}
             </option>
           </select>
+        </div>
+        <div v-if="advisor !== null" class="active-filter">
+          <span
+            >Asesor: <strong>{{ advisor || "Sin asesor" }}</strong></span
+          ><button @click="advisor = null">Quitar filtro</button>
         </div>
         <div class="table-scroll">
           <table>

@@ -348,3 +348,89 @@ test("event deletion requires confirmation and removes only the selected event",
   await page.goto(`${base}eventos/${secondId}`);
   await expect(page.getByRole("heading", { name: "Evento no encontrado" })).toBeVisible();
 });
+
+test("PoC totals and advisor ranking are event-specific and support missing-advisor filters", async ({
+  page,
+}) => {
+  await backend(page);
+  await page.route("https://attendance-test.supabase.co/rest/v1/employees*", (route) =>
+    route.fulfill({
+      json: [
+        { ...employee, active: true },
+        { ...employee, id: "000002", nombre: "Pendiente", active: true },
+        { ...employee, id: "000003", nombre: "Empleado inactivo", active: false },
+      ],
+    }),
+  );
+  await page.route("https://attendance-test.supabase.co/rest/v1/attendance*", (route) => {
+    const target = new URL(route.request().url()).searchParams.get("event_id")?.replace("eq.", "");
+
+    return route.fulfill({
+      json:
+        target === eventId
+          ? [
+              {
+                ...employee,
+                employee_id: employee.id,
+                event_id: eventId,
+                checked_in_at: checkedAt,
+              },
+              {
+                ...employee,
+                employee_id: "000003",
+                nombre: "Empleado inactivo",
+                asesor: "",
+                event_id: eventId,
+                checked_in_at: checkedAt,
+              },
+            ]
+          : [],
+    });
+  });
+  await login(page, `admin/eventos/${eventId}`);
+  const metrics = page.getByLabel("Resumen del evento");
+  await expect(
+    metrics
+      .locator(".metric-card")
+      .filter({ has: page.getByText("Empleados activos", { exact: true }) })
+      .locator("dd"),
+  ).toHaveText("2");
+  await expect(
+    metrics
+      .locator(".metric-card")
+      .filter({ has: page.getByText("Asistencias registradas", { exact: true }) })
+      .locator("dd"),
+  ).toHaveText("2");
+  await expect(
+    metrics
+      .locator(".metric-card")
+      .filter({ has: page.getByText("Pendientes", { exact: true }) })
+      .locator("dd"),
+  ).toHaveText("1");
+  await expect(metrics.getByText("50% de la base activa")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Ana.*1 asistencia/ })).toBeVisible();
+  await page.getByRole("button", { name: /Sin asesor.*1 asistencia/ }).click();
+  await expect(page.getByRole("cell", { name: "Empleado inactivo", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "María Prueba", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Quitar filtro" }).click();
+  await expect(page.getByRole("cell", { name: "María Prueba", exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/event-metrics-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/event-metrics-mobile.png", fullPage: true });
+  await page.getByRole("link", { name: "Todos los eventos" }).click();
+  await page.getByRole("heading", { name: "Capacitación de noviembre" }).getByRole("link").click();
+  await expect(
+    metrics
+      .locator(".metric-card")
+      .filter({ has: page.getByText("Asistencias registradas", { exact: true }) })
+      .locator("dd"),
+  ).toHaveText("0");
+  await expect(
+    metrics
+      .locator(".metric-card")
+      .filter({ has: page.getByText("Pendientes", { exact: true }) })
+      .locator("dd"),
+  ).toHaveText("2");
+  await expect(page.locator(".advisor-panel")).toHaveCount(0);
+});

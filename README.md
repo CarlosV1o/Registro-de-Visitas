@@ -15,6 +15,8 @@ Herramienta interna en español con Vue 3, Vike, TypeScript, Vite+ y Supabase. C
 
 El identificador UUID del enlace determina el evento. Un enlace inválido muestra un error y nunca selecciona otro evento. Cada registro y exportación usa el identificador de la ruta. El enlace permanece igual cuando se cambia el nombre del evento.
 
+El informe incluye empleados activos, asistencias, pendientes y porcentaje de la base activa registrada. Los pendientes se calculan por ID: la asistencia histórica de empleados inactivos no reduce ese número. El desglose por asesor se ordena de mayor a menor y permite filtrar la lista, incluidos los registros sin asesor. Los iconos usan Lucide (`@lucide/vue`).
+
 La base de empleados es compartida entre eventos. La asistencia se guarda por evento con una copia de los datos del empleado al registrarse, de modo que las importaciones posteriores no cambian el historial. Un empleado puede registrarse en varios eventos, una sola vez en cada uno.
 
 ## Desarrollo
