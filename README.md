@@ -10,7 +10,7 @@ Herramienta interna en español con Vue 3, Vike, TypeScript, Vite+ y Supabase. C
 | `/admin`                           | Administrador    | Crear eventos, copiar enlaces y abrir informes                 |
 | `/admin/empleados`                 | Administrador    | Buscar, filtrar, importar y exportar empleados                 |
 | `/eventos/:id`                     | Público          | Registrar asistencia con número de empleado                    |
-| `/admin/eventos/:id`               | Administrador    | Consultar y exportar la asistencia de ese evento               |
+| `/admin/eventos/:id`               | Administrador    | Consultar, exportar, registrar a mano y subir convocados       |
 | `/admin/eventos/:id/configuracion` | Administrador    | Cambiar nombre, cerrar, reabrir o eliminar el evento           |
 
 El identificador UUID del enlace determina el evento. Un enlace inválido muestra un error y nunca selecciona otro evento. Cada registro y exportación usa el identificador de la ruta. El enlace permanece igual cuando se cambia el nombre del evento.
@@ -18,6 +18,10 @@ El identificador UUID del enlace determina el evento. Un enlace inválido muestr
 El informe incluye empleados activos, asistencias, pendientes y porcentaje de la base activa registrada. Los pendientes se calculan por ID: la asistencia histórica de empleados inactivos no reduce ese número. El desglose por asesor se ordena de mayor a menor y permite filtrar la lista, incluidos los registros sin asesor. Los controles usan shadcn-vue con el preset `axPhMWG` (Reka Luma, mauve, Inter) y Lucide (`@lucide/vue`). El layout administrativo conserva la navegación y la sesión entre páginas.
 
 La base de empleados es compartida entre eventos. La asistencia se guarda por evento con una copia de los datos del empleado al registrarse, de modo que las importaciones posteriores no cambian el historial. Un empleado puede registrarse en varios eventos, una sola vez en cada uno.
+
+Cada evento puede tener su lista de convocados. Desde el encabezado del evento («Subir convocados») o la tarjeta de convocados, el administrador sube un CSV con el mismo formato que la base de empleados. Los IDs nuevos se registran en la base y los existentes se actualizan, igual que en la importación general. El archivo reemplaza la lista anterior del evento; las filas con `Activo` en «no» se actualizan pero no se convocan. Con lista, los pendientes y el porcentaje se calculan contra los convocados, y quien se registre sin estar en ella se acepta y aparece como «No convocado» en su propia pestaña y en la columna `Estado` de las exportaciones. Sin lista, o después de quitarla, los pendientes vuelven a calcularse con la base activa. La función `import_event_roster` valida todo el archivo y escribe la base y la lista en una sola transacción. El registro público no cambia: sigue devolviendo el mismo recibo genérico.
+
+«Registro manual», en la lista de asistencia, registra a quien no está en la base o en la lista. El número y el nombre sugieren empleados existentes y, al elegir uno, se llenan sus datos. Tienda, plaza, región, asesor y posición sugieren los valores ya guardados, pero aceptan texto nuevo; elegir una tienda conocida completa la plaza, la región y el asesor más frecuentes si están vacíos. La función `register_manual_attendance` actualiza o crea al empleado (reactivándolo si estaba inactivo), opcionalmente lo agrega a la lista existente y registra la asistencia con la hora del servidor, todo en una transacción. El evento debe estar abierto.
 
 ## Desarrollo
 
@@ -33,7 +37,7 @@ Configura `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` en `.env.local`.
 
 ## Configurar Supabase
 
-1. En un proyecto nuevo, ejecuta las migraciones de `supabase/migrations/` en orden. Si ya existe la primera migración, ejecuta las migraciones posteriores en orden para habilitar las rutas públicas, limitar los informes a administradores y permitir eliminar eventos. La migración conserva los datos existentes.
+1. En un proyecto nuevo, ejecuta las migraciones de `supabase/migrations/` en orden. Si ya existe la primera migración, ejecuta las migraciones posteriores en orden para habilitar las rutas públicas, limitar los informes a administradores, permitir eliminar eventos y agregar las listas de convocados. La migración conserva los datos existentes.
 2. En Authentication → URL Configuration, configura **Site URL** y **Redirect URLs** con la URL publicada, por ejemplo `https://carlosv1o.github.io/Registro-de-Visitas/`. Usa un enlace nuevo si la invitación anterior ya se consumió. La aplicación incluye la pantalla para establecer la contraseña de invitaciones y recuperación.
 3. Crea las cuentas de administradores en Authentication. No hay registro público de cuentas.
 4. Asigna el rol usando el UUID de cada cuenta:

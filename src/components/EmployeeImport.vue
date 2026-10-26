@@ -13,9 +13,11 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { parseEmployees, downloadCsv, makeCsv, employeeHeaders } from "../lib/csv";
-import { importEmployees } from "../lib/api";
+import { importEmployees, importEventRoster } from "../lib/api";
 import type { Employee } from "../lib/models";
 
+// With an event, the file also replaces that event's list of scheduled employees.
+const props = defineProps<{ eventId?: string }>();
 const emit = defineEmits<{ imported: [] }>();
 
 const pending = ref<Employee[]>([]);
@@ -51,13 +53,20 @@ async function save() {
   error.value = "";
 
   try {
-    const count = await importEmployees(pending.value);
+    if (props.eventId) {
+      const result = await importEventRoster(props.eventId, pending.value);
+      message.value = `${result.scheduled} empleados convocados. ${result.created} nuevos registrados en la base y ${result.updated} actualizados por ID.`;
+    } else {
+      const count = await importEmployees(pending.value);
+      message.value = `${count} empleados importados. Los registros existentes se actualizaron por ID.`;
+    }
+
     pending.value = [];
-    message.value = `${count} empleados importados. Los registros existentes se actualizaron por ID.`;
     emit("imported");
   } catch {
-    error.value =
-      "No se pudo importar. Verifica tus permisos, tu conexión y los límites del archivo. Ningún cambio de este archivo se guardó.";
+    error.value = props.eventId
+      ? "No se pudo guardar la lista. Verifica tus permisos, tu conexión, los límites del archivo y que incluya empleados activos. Ningún cambio de este archivo se guardó."
+      : "No se pudo importar. Verifica tus permisos, tu conexión y los límites del archivo. Ningún cambio de este archivo se guardó.";
   } finally {
     busy.value = false;
   }
@@ -75,7 +84,7 @@ async function save() {
         class="hidden-file-input"
         type="file"
         accept=".csv,text/csv"
-        aria-label="Archivo CSV de empleados"
+        :aria-label="eventId ? 'Archivo CSV de convocados' : 'Archivo CSV de empleados'"
         :disabled="busy"
         @change="selectFile"
       /><Button type="button" :disabled="busy" @click="input?.click()"
@@ -101,6 +110,11 @@ async function save() {
           obligatorios. Los IDs conservan sus ceros iniciales. La columna opcional Activo acepta
           sí/no. Omitirla activa los empleados del archivo. Los empleados ausentes del archivo no se
           eliminan.
+        </p>
+        <p v-if="eventId" class="small muted">
+          Los IDs nuevos se registran en la base y los existentes se actualizan. El archivo
+          reemplaza la lista de convocados de este evento; las filas con Activo «no» se actualizan
+          pero no se convocan.
         </p>
       </CollapsibleContent></Collapsible
     >
@@ -136,7 +150,13 @@ async function save() {
       </div>
       <div class="actions">
         <Button variant="default" :disabled="busy" @click="save">
-          {{ busy ? "Importando…" : `Confirmar ${pending.length} empleados` }}</Button
+          {{
+            busy
+              ? "Importando…"
+              : eventId
+                ? `Guardar lista de ${pending.length} empleados`
+                : `Confirmar ${pending.length} empleados`
+          }}</Button
         ><Button variant="outline" :disabled="busy" @click="pending = []">Cancelar</Button>
       </div>
     </div>

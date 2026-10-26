@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { client } from "./supabase";
-import { attendanceSchema, employeeSchema, eventSchema, roleSchema, type Employee } from "./models";
+import {
+  attendanceSchema,
+  employeeSchema,
+  eventSchema,
+  roleSchema,
+  rosterImportSchema,
+  type Employee,
+} from "./models";
 import { importResponseSchema } from "./csv";
 
 export async function getRole() {
@@ -65,6 +72,67 @@ export async function getAttendance(eventId: string) {
 
     page++;
   }
+}
+
+// Scheduled employee IDs of the event. An empty list means the event has no roster.
+export async function getRoster(eventId: string) {
+  const ids: string[] = [];
+  let page = 0;
+
+  while (true) {
+    const { data, error } = await client()
+      .from("event_roster")
+      .select("employee_id")
+      .eq("event_id", eventId)
+      .order("employee_id")
+      .range(page * 500, page * 500 + 499);
+
+    if (error) throw error;
+
+    const rows = z.array(z.object({ employee_id: z.string() })).parse(data);
+    ids.push(...rows.map((row) => row.employee_id));
+
+    if (rows.length < 500) return ids;
+
+    page++;
+  }
+}
+
+export async function importEventRoster(eventId: string, employees: Employee[]) {
+  const { data, error } = await client().rpc("import_event_roster", {
+    target_event: eventId,
+    records: employees,
+  });
+
+  if (error) throw error;
+
+  return rosterImportSchema.parse(data);
+}
+
+export async function clearEventRoster(eventId: string) {
+  const { error } = await client().rpc("clear_event_roster", { target_event: eventId });
+
+  if (error) throw error;
+}
+
+// Upserts the employee and records attendance in one transaction. With schedule, the
+// employee is also added to the event's list when it has one.
+export async function registerManualAttendance(
+  eventId: string,
+  employee: Employee,
+  schedule: boolean,
+) {
+  const { data, error } = await client().rpc("register_manual_attendance", {
+    target_event: eventId,
+    employee,
+    schedule,
+  });
+
+  if (error) throw error;
+
+  return z
+    .object({ created: z.boolean(), registered: z.boolean(), record: attendanceSchema })
+    .parse(data);
 }
 
 export async function checkIn(eventId: string, employeeId: string) {

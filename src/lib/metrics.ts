@@ -1,15 +1,34 @@
 import type { Attendance, Employee } from "./models";
 
-export function attendanceMetrics(employees: Employee[], attendance: Attendance[]) {
-  const active = employees.filter((employee) => employee.active);
+// Employees expected at the event: its uploaded roster or, without one, the active base.
+export function expectedEmployees(employees: Employee[], roster: string[]) {
+  if (!roster.length) return employees.filter((employee) => employee.active);
+
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+
+  return roster.flatMap((id) => byId.get(id) ?? []);
+}
+
+export function attendanceMetrics(
+  employees: Employee[],
+  attendance: Attendance[],
+  roster: string[],
+) {
+  const expected = expectedEmployees(employees, roster);
   const present = new Set(attendance.map((entry) => entry.employee_id));
-  const pending = active.filter((employee) => !present.has(employee.id)).length;
+  const scheduled = new Set(roster);
+  const pending = expected.filter((employee) => !present.has(employee.id)).length;
 
   return {
-    total: active.length,
+    total: expected.length,
     registered: attendance.length,
     pending,
-    percent: active.length ? Math.round(((active.length - pending) / active.length) * 100) : 0,
+    unscheduled: roster.length
+      ? attendance.filter((entry) => !scheduled.has(entry.employee_id)).length
+      : 0,
+    percent: expected.length
+      ? Math.round(((expected.length - pending) / expected.length) * 100)
+      : 0,
   };
 }
 

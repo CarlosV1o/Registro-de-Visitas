@@ -1628,3 +1628,112 @@ summary {
 .registration-card .registration-card-heading h2 {
   margin: 0;
 }
+
+.roster-dialog {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.roster-clear {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.roster-clear h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.roster-clear p {
+  margin: 0;
+}
+
+.manual-check-in-form {
+  display: grid;
+  gap: 20px;
+}
+.manual-section {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.manual-section legend {
+  margin-bottom: 10px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.manual-grid {
+  display: grid;
+  gap: 14px 16px;
+}
+.manual-identity {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+.manual-location {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.manual-role {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.manual-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+.manual-check-in-form .app-notice {
+  margin: 0;
+}
+.manual-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.manual-schedule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+}
+.suggest-option {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.suggest-option-label {
+  overflow-wrap: anywhere;
+}
+.suggest-option-detail {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+}
+@media (max-width: 640px) {
+  .manual-identity,
+  .manual-location,
+  .manual-role {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .manual-footer [data-slot="button"] {
+    width: 100%;
+  }
+}
+.metric-action {
+  height: auto;
+  margin-top: 6px;
+  padding: 0;
+  font-size: 12px;
+}

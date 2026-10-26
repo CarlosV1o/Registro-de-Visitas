@@ -38,6 +38,14 @@ export const eventSchema = z.object({
 
 export type AttendanceEvent = z.infer<typeof eventSchema>;
 
+export const rosterImportSchema = z.object({
+  created: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  scheduled: z.number().int().positive(),
+});
+
+export type RosterImport = z.infer<typeof rosterImportSchema>;
+
 export const roleSchema = z.enum(["admin", "staff"]).nullable();
 
 export type Role = z.infer<typeof roleSchema>;

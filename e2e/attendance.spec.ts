@@ -38,6 +38,9 @@ test.afterEach(() => {
 async function backend(page: Page, role = "admin", isOpen = true) {
   const calls: string[] = [];
   const present = new Set<string>();
+  const rosters = new Map<string, string[]>();
+  const registered: (typeof employee & { active: boolean })[] = [];
+  const manual = new Map<string, (typeof employee)[]>();
 
   const events = [
     { id: eventId, title: "Reunión del equipo", is_open: isOpen, created_at: checkedAt },
@@ -88,6 +91,41 @@ async function backend(page: Page, role = "admin", isOpen = true) {
         record: { ...employee, event_id: target, employee_id: id, checked_in_at: checkedAt },
       };
       present.add(target);
+    } else if (path.endsWith("/import_event_roster")) {
+      const { target_event: target, records } = request.postDataJSON();
+      const known = new Set([employee.id, ...registered.map((entry) => entry.id)]);
+      const created = records.filter((record: { id: string }) => !known.has(record.id));
+
+      registered.push(...created);
+      rosters.set(
+        target,
+        records.map((record: { id: string }) => record.id),
+      );
+      body = {
+        created: created.length,
+        updated: records.length - created.length,
+        scheduled: records.length,
+      };
+    } else if (path.endsWith("/register_manual_attendance")) {
+      const { target_event: target, employee: record, schedule } = request.postDataJSON();
+      const known = record.id === employee.id || registered.some((entry) => entry.id === record.id);
+      const list = rosters.get(target);
+
+      if (!known) registered.push(record);
+
+      if (schedule && list && !list.includes(record.id)) list.push(record.id);
+      manual.set(target, [...(manual.get(target) ?? []), record]);
+      body = {
+        created: true,
+        registered: !known,
+        record: { ...record, event_id: target, employee_id: record.id, checked_in_at: checkedAt },
+      };
+    } else if (path.endsWith("/clear_event_roster")) {
+      rosters.delete(request.postDataJSON().target_event);
+      body = null;
+    } else if (path.endsWith("/event_roster")) {
+      const target = url.searchParams.get("event_id")?.replace("eq.", "") ?? "";
+      body = (rosters.get(target) ?? []).map((id) => ({ employee_id: id }));
     } else if (path.endsWith("/delete_event")) {
       const target = request.postDataJSON().target_event;
       const index = events.findIndex((entry) => entry.id === target);
@@ -125,12 +163,17 @@ async function backend(page: Page, role = "admin", isOpen = true) {
         ? url.searchParams.get("id") === `eq.${employee.id}`
           ? { id: employee.id, nombre: employee.nombre }
           : null
-        : [{ ...employee, active: true }];
+        : [{ ...employee, active: true }, ...registered];
     else if (path.endsWith("/attendance")) {
       const target = url.searchParams.get("event_id")?.replace("eq.", "") ?? "";
-      body = present.has(target)
-        ? [{ ...employee, event_id: target, employee_id: employee.id, checked_in_at: checkedAt }]
-        : [];
+      body = [...(present.has(target) ? [employee] : []), ...(manual.get(target) ?? [])].map(
+        (record) => ({
+          ...record,
+          event_id: target,
+          employee_id: record.id,
+          checked_in_at: checkedAt,
+        }),
+      );
     } else if (path.endsWith("/logout")) body = {};
     else throw new Error(`Unexpected request: ${path}`);
 
@@ -723,6 +766,121 @@ test("employee import validates before writing and previews the selected file", 
   await dialog.getByRole("button", { name: "Confirmar 1 empleados", exact: true }).click();
   await expect(dialog.getByRole("status")).toContainText("1 empleados importados");
   expect(writes).toBe(1);
+});
+
+test("an event roster registers new employees and flags unscheduled check-ins", async ({
+  page,
+}) => {
+  await backend(page);
+  await register(page);
+  await login(page, `admin/eventos/${eventId}`);
+  await page.getByRole("button", { name: "Subir convocados", exact: true }).click();
+  const roster = page.getByRole("dialog", { name: "Empleados convocados" });
+  await expect(roster.getByText(/Sin lista/)).toBeVisible();
+  await roster.getByLabel("Archivo CSV de convocados").setInputFiles({
+    name: "convocados.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      "ID,Nombre,Tienda,Plaza,Región,Asesor,Posición\n000007,Persona convocada,Centro,Norte,Baja,Ana,Ventas\n",
+    ),
+  });
+  await expect(roster.getByRole("cell", { name: "000007", exact: true })).toBeVisible();
+  await roster.getByRole("button", { name: "Guardar lista de 1 empleados", exact: true }).click();
+  await expect(roster.getByRole("status")).toContainText("1 empleados convocados. 1 nuevos");
+  await expect(roster.getByText(/^1 empleados convocados\. Los pendientes/)).toBeVisible();
+  await page.screenshot({ path: "test-results/event-roster-dialog.png", fullPage: true });
+  await page.keyboard.press("Escape");
+
+  const metrics = page.getByLabel("Resumen del evento");
+
+  const metric = (label: string) =>
+    metrics
+      .locator(".metric-card")
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .locator("dd");
+
+  await expect(metric("Convocados")).toHaveText("1");
+  await expect(metric("Pendientes")).toHaveText("1");
+  await expect(metrics.getByText(/0% de los convocados · 1 no convocados/)).toBeVisible();
+  await page.getByRole("tab", { name: /No convocados/ }).click();
+  await expect(page.getByRole("cell", { name: "004509", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "No convocado", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: /Pendientes/ }).click();
+  await expect(page.getByRole("cell", { name: "Persona convocada", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "004509", exact: true })).toHaveCount(0);
+
+  await metrics.getByRole("button", { name: "Actualizar lista" }).click();
+  await roster.getByRole("button", { name: "Quitar lista de convocados" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Quitar lista" }).click();
+  await expect(roster.getByText(/Sin lista/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(metric("Empleados activos")).toHaveText("2");
+  await expect(page.getByRole("tab", { name: /No convocados/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Subir convocados", exact: true })).toBeVisible();
+});
+
+test("admins register missing employees manually with suggestions from the base", async ({
+  page,
+}) => {
+  await backend(page);
+  let submitted: { schedule: boolean; employee: Record<string, string> } | undefined;
+  await page.route("https://attendance-test.supabase.co/rest/v1/event_roster*", (route) =>
+    route.fulfill({ json: [{ employee_id: employee.id }] }),
+  );
+  page.on("request", (request) => {
+    if (request.url().endsWith("/register_manual_attendance")) submitted = request.postDataJSON();
+  });
+  await login(page, `admin/eventos/${eventId}`);
+  await page.getByRole("button", { name: "Registro manual" }).click();
+  const dialog = page.getByRole("dialog");
+
+  // An existing employee can be found by name and fills every field.
+  await dialog.getByLabel("Nombre completo").fill("maria");
+  await page.getByRole("option", { name: /María Prueba/ }).click();
+  await expect(dialog.getByLabel("Número de empleado")).toHaveValue(employee.id);
+  await expect(dialog.getByLabel("Tienda")).toHaveValue(employee.tienda);
+  await expect(dialog.getByText("Empleado existente")).toBeVisible();
+
+  // A new ID clears the filled data and still accepts free text.
+  await dialog.getByLabel("Número de empleado").fill("000010");
+  await expect(dialog.getByLabel("Nombre completo")).toHaveValue("");
+  await expect(dialog.getByText("Se agregará a la base de empleados.")).toBeVisible();
+  await dialog.getByLabel("Nombre completo").fill("Persona manual");
+  await dialog.getByLabel("Tienda").fill("cen");
+  await page.getByRole("option", { name: "Centro", exact: true }).click();
+  await expect(dialog.getByLabel("Plaza")).toHaveValue(employee.plaza);
+  await expect(dialog.getByLabel("Región")).toHaveValue(employee.region);
+  await expect(dialog.getByLabel("Asesor")).toHaveValue(employee.asesor);
+  await dialog.getByLabel("Posición").fill("Caj");
+  await expect(page.getByRole("option", { name: employee.posicion })).toHaveCount(0);
+  await dialog.getByLabel("Posición").fill("Ven");
+  await expect(page.getByRole("option", { name: employee.posicion, exact: true })).toBeVisible();
+  await dialog.getByLabel("Posición").fill("Cajero");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await expect(
+    dialog.getByRole("checkbox", { name: "Agregar a la lista de convocados" }),
+  ).toBeChecked();
+  await page.screenshot({ path: "test-results/manual-check-in.png", fullPage: true });
+  await dialog.getByRole("button", { name: "Registrar asistencia" }).click();
+  await expect(dialog.getByRole("status")).toHaveText(
+    "Asistencia registrada para Persona manual. Se agregó a la base de empleados.",
+  );
+  expect(submitted?.schedule).toBe(true);
+  expect(submitted?.employee).toMatchObject({
+    id: "000010",
+    nombre: "Persona manual",
+    tienda: "Centro",
+    plaza: "Norte",
+    posicion: "Cajero",
+  });
+  await expect(dialog.getByLabel("Número de empleado")).toHaveValue("");
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("cell", { name: "Persona manual", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.getByRole("button", { name: "Registro manual" }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/manual-check-in-mobile.png", fullPage: true });
 });
 
 test("failed event changes remain in the confirmation dialog and can be retried", async ({

@@ -7,6 +7,7 @@ let events: AttendanceEvent[] | undefined;
 let employees: Employee[] | undefined;
 const eventDetails = new Map<string, AttendanceEvent | null>();
 const attendance = new Map<string, Attendance[]>();
+const rosters = new Map<string, string[]>();
 
 // Email of the account last confirmed as admin in this tab. It only skips the access
 // check screen on client navigation; Postgres policies still authorize every request.
@@ -37,11 +38,16 @@ export const cache = {
   setAttendance(eventId: string, value: Attendance[]) {
     attendance.set(eventId, value);
   },
+  roster: (eventId: string) => rosters.get(eventId),
+  setRoster(eventId: string, value: string[]) {
+    rosters.set(eventId, value);
+  },
   clear() {
     events = undefined;
     employees = undefined;
     eventDetails.clear();
     attendance.clear();
+    rosters.clear();
     adminEmail = null;
     generation++;
   },

@@ -30,6 +30,10 @@ psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260003_delete_event.s
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-event-links.sql
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260004_public_protection.sql
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-security.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260005_event_roster.sql
+psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-event-roster.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260006_manual_attendance.sql
+psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-manual-attendance.sql
 
 # Both callers must observe the same row, with exactly one insert winning.
 for caller in 1 2; do
@@ -50,4 +54,4 @@ if [[ $(cat "$test_cluster/checkin-1" "$test_cluster/checkin-2" | sort | tr '\n'
   echo 'Expected indistinguishable receipts for concurrent check-ins' >&2
   exit 1
 fi
-echo 'Database authorization, atomic import and concurrent check-ins passed.'
+echo 'Database authorization, atomic import, event rosters, manual registration and concurrent check-ins passed.'

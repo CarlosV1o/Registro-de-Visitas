@@ -1,13 +1,23 @@
+import { expectedEmployees } from "./metrics";
 import type { Attendance, Employee } from "./models";
 
-export type ReportRow = Omit<Employee, "active"> & { checked_in_at: string | null };
+export type ReportRow = Omit<Employee, "active"> & {
+  checked_in_at: string | null;
+  // Checked in although the event's roster does not include the employee.
+  unscheduled: boolean;
+};
 
-export type ReportStatus = "attended" | "pending" | "all";
+export type ReportStatus = "attended" | "pending" | "unscheduled" | "all";
 
 export type ReportSort = "recent" | "name" | "id";
 
-export function reportRows(employees: Employee[], attendance: Attendance[]): ReportRow[] {
+export function reportRows(
+  employees: Employee[],
+  attendance: Attendance[],
+  roster: string[],
+): ReportRow[] {
   const present = new Set(attendance.map((entry) => entry.employee_id));
+  const scheduled = new Set(roster);
 
   const rows: ReportRow[] = attendance.map((entry) => ({
     id: entry.employee_id,
@@ -18,12 +28,12 @@ export function reportRows(employees: Employee[], attendance: Attendance[]): Rep
     asesor: entry.asesor,
     posicion: entry.posicion,
     checked_in_at: entry.checked_in_at,
+    unscheduled: roster.length > 0 && !scheduled.has(entry.employee_id),
   }));
 
-  for (const employee of employees) {
-    if (employee.active && !present.has(employee.id)) {
-      rows.push({ ...employee, checked_in_at: null });
-    }
+  for (const employee of expectedEmployees(employees, roster)) {
+    if (!present.has(employee.id))
+      rows.push({ ...employee, checked_in_at: null, unscheduled: false });
   }
 
   return rows;
@@ -58,7 +68,7 @@ export function sortReport(rows: ReportRow[], sort: ReportSort) {
   });
 }
 
-export function advisorSummary(employees: Employee[], attendance: Attendance[]) {
+export function advisorSummary(employees: Employee[], attendance: Attendance[], roster: string[]) {
   const groups = new Map<
     string,
     { name: string; total: number; count: number; pending: number; percent: number }
@@ -78,8 +88,7 @@ export function advisorSummary(employees: Employee[], attendance: Attendance[]) 
     return value;
   }
 
-  for (const employee of employees) {
-    if (!employee.active) continue;
+  for (const employee of expectedEmployees(employees, roster)) {
     const value = group(employee.asesor);
     value.total++;
 
@@ -99,6 +108,12 @@ export function advisorSummary(employees: Employee[], attendance: Attendance[]) 
   );
 }
 
+export function reportStatus(row: ReportRow) {
+  if (row.unscheduled) return "No convocado";
+
+  return row.checked_in_at ? "Asistió" : "Pendiente";
+}
+
 export function reportValues(row: ReportRow) {
   return [
     row.id,
@@ -109,7 +124,7 @@ export function reportValues(row: ReportRow) {
     row.asesor,
     row.posicion,
     row.checked_in_at ?? "",
-    row.checked_in_at ? "Asistió" : "Pendiente",
+    reportStatus(row),
   ];
 }
 

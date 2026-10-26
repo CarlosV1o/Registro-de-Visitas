@@ -7,7 +7,7 @@ import AppNotice from "@/components/AppNotice.vue";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { z } from "zod";
 import { navigate } from "vike/client/router";
-import { getAttendance, getEmployees, getEvent } from "../lib/api";
+import { getAttendance, getEmployees, getEvent, getRoster } from "../lib/api";
 import { cache } from "../lib/cache";
 import { pendingPrefetch } from "../lib/prefetch";
 import { attendanceCsv, downloadCsv, makeCsv } from "../lib/csv";
@@ -16,6 +16,7 @@ import {
   advisorSummary,
   reportRows,
   reportHeaders,
+  reportStatus,
   reportValues,
   searchReport,
   sortReport,
@@ -62,12 +63,15 @@ import {
 } from "@/components/ui/table";
 import AppIcon from "./AppIcon.vue";
 import EventSettings from "./EventSettings.vue";
+import EventRoster from "./EventRoster.vue";
+import ManualCheckIn from "./ManualCheckIn.vue";
 import CopyEventLink from "./CopyEventLink.vue";
 
 const props = defineProps<{ eventId: string; settings?: boolean }>();
 const event = ref<AttendanceEvent | null>(null);
 const attendance = ref<Attendance[]>([]);
 const employees = ref<Employee[]>([]);
+const roster = ref<string[]>([]);
 const loading = ref(true);
 const exporting = ref(false);
 const error = ref("");
@@ -90,9 +94,12 @@ const synced = ref<Date | null>(null);
 let generation = 0;
 let inFlight = false;
 
-const metrics = computed(() => attendanceMetrics(employees.value, attendance.value));
-const ranking = computed(() => advisorSummary(employees.value, attendance.value));
-const rows = computed(() => reportRows(employees.value, attendance.value));
+const metrics = computed(() => attendanceMetrics(employees.value, attendance.value, roster.value));
+const ranking = computed(() => advisorSummary(employees.value, attendance.value, roster.value));
+const rows = computed(() => reportRows(employees.value, attendance.value, roster.value));
+const scheduled = computed(() => roster.value.length > 0);
+const rosterOpen = ref(false);
+const attended = computed(() => new Set(attendance.value.map((entry) => entry.employee_id)));
 
 const regions = computed(() =>
   [...new Set(rows.value.map((row) => row.region))].sort((a, b) => a.localeCompare(b, "es")),
@@ -144,7 +151,9 @@ const visible = computed(() =>
         (status.value === "all" ||
           (status.value === "attended"
             ? row.checked_in_at !== null
-            : row.checked_in_at === null)) &&
+            : status.value === "unscheduled"
+              ? row.unscheduled
+              : row.checked_in_at === null)) &&
         (advisor.value === null || row.asesor.trim() === advisor.value) &&
         (region.value === null || row.region === region.value) &&
         (plaza.value === null || row.plaza === plaza.value) &&
@@ -167,6 +176,11 @@ const hasFilters = computed(
 
 watch([search, advisor, region, plaza, status, sort, pageSize], () => {
   page.value = 1;
+});
+
+// Removing the roster also removes its tab.
+watch(scheduled, (value) => {
+  if (!value && status.value === "unscheduled") status.value = "attended";
 });
 
 watch(pages, (value) => {
@@ -199,10 +213,11 @@ async function exportExcel() {
   const selected = event.value;
   const base = [...employees.value];
   const records = [...attendance.value];
+  const list = [...roster.value];
   const selection = [...visible.value];
 
   try {
-    await downloadWorkbook(selected, base, records, selection);
+    await downloadWorkbook(selected, base, records, list, selection);
   } catch {
     if (request === generation)
       error.value = "No se pudo generar el archivo Excel. Vuelve a intentarlo.";
@@ -226,11 +241,13 @@ async function load() {
   // Show the last known data for this event immediately; the request below refreshes it.
   const cachedEvent = cache.event(target);
   const cachedAttendance = cache.attendance(target);
+  const cachedRoster = cache.roster(target);
   const cachedEmployees = cache.employees();
 
-  if (!event.value && cachedEvent && cachedAttendance && cachedEmployees) {
+  if (!event.value && cachedEvent && cachedAttendance && cachedRoster && cachedEmployees) {
     event.value = cachedEvent;
     attendance.value = cachedAttendance;
+    roster.value = cachedRoster;
     employees.value = cachedEmployees;
   }
 
@@ -239,19 +256,22 @@ async function load() {
   try {
     if (!z.uuid().safeParse(target).success) return;
 
-    const [selected, entries, employeeRows] = await Promise.all([
+    const [selected, entries, scheduledIds, employeeRows] = await Promise.all([
       getEvent(target),
       getAttendance(target),
+      getRoster(target),
       getEmployees(),
     ]);
 
     cache.setEvent(target, selected);
     cache.setAttendance(target, entries);
+    cache.setRoster(target, scheduledIds);
     cache.setEmployees(employeeRows);
 
     if (request !== generation) return;
     event.value = selected;
     attendance.value = entries;
+    roster.value = scheduledIds;
     employees.value = employeeRows;
     synced.value = new Date();
   } catch {
@@ -293,6 +313,7 @@ watch(
     event.value = null;
     activeSection.value = window.location.hash === "#ranking" ? "ranking" : "attendance";
     attendance.value = [];
+    roster.value = [];
     resetFilters();
     status.value = "attended";
     page.value = 1;
@@ -353,7 +374,11 @@ onUnmounted(() => {
         <p class="muted">Consulta los ingresos, identifica pendientes y prepara tus reportes.</p>
       </div>
       <div class="actions heading-actions">
-        <CopyEventLink :event-id="event.id" /><Button as-child
+        <CopyEventLink :event-id="event.id" /><Button variant="outline" @click="rosterOpen = true"
+          ><AppIcon name="upload" />{{
+            scheduled ? `Convocados (${roster.length})` : "Subir convocados"
+          }}</Button
+        ><Button as-child
           ><a :href="eventLink(event.id)">Abrir registro <AppIcon name="arrow" /></a
         ></Button>
       </div>
@@ -416,6 +441,12 @@ onUnmounted(() => {
         /></Button>
       </div>
     </div>
+    <EventRoster
+      v-model:open="rosterOpen"
+      :event-id="event.id"
+      :count="roster.length"
+      @changed="load"
+    />
     <EventSettings
       v-if="settings"
       :event="event"
@@ -425,19 +456,28 @@ onUnmounted(() => {
     <template v-else>
       <dl class="event-metrics" aria-label="Resumen del evento">
         <Card class="metric-card gap-0 rounded-xl border shadow-none ring-0">
-          <dt><AppIcon name="users" /> Empleados activos</dt>
+          <dt><AppIcon name="users" /> {{ scheduled ? "Convocados" : "Empleados activos" }}</dt>
           <dd>{{ metrics.total }}</dd>
-          <p class="small muted">Base de empleados</p>
+          <p class="small muted">
+            {{ scheduled ? "Lista del evento" : "Base de empleados" }}
+          </p>
+          <Button variant="link" size="sm" class="metric-action" @click="rosterOpen = true">{{
+            scheduled ? "Actualizar lista" : "Subir lista de convocados"
+          }}</Button>
         </Card>
         <Card class="metric-card metric-attended gap-0 rounded-xl border shadow-none ring-0">
           <dt><AppIcon name="attended" /> Asistencias registradas</dt>
           <dd>{{ metrics.registered }}</dd>
           <p class="small muted">
             {{
-              metrics.total
-                ? `${metrics.percent}% de la base activa`
-                : "Sin empleados activos en la base"
-            }}
+              scheduled
+                ? `${metrics.percent}% de los convocados`
+                : metrics.total
+                  ? `${metrics.percent}% de la base activa`
+                  : "Sin empleados activos en la base"
+            }}<template v-if="metrics.unscheduled">
+              · {{ metrics.unscheduled }} no convocados</template
+            >
           </p>
           <Progress
             :model-value="metrics.percent"
@@ -448,7 +488,9 @@ onUnmounted(() => {
         <Card class="metric-card gap-0 rounded-xl border shadow-none ring-0">
           <dt><AppIcon name="pending" /> Pendientes</dt>
           <dd>{{ metrics.pending }}</dd>
-          <p class="small muted">Empleados activos sin registro</p>
+          <p class="small muted">
+            {{ scheduled ? "Convocados sin registro" : "Empleados activos sin registro" }}
+          </p>
         </Card>
       </dl>
       <AdvisorRanking
@@ -471,6 +513,14 @@ onUnmounted(() => {
             </p>
           </div>
           <div class="report-actions">
+            <ManualCheckIn
+              :event-id="event.id"
+              :is-open="event.is_open"
+              :scheduled="scheduled"
+              :employees="employees"
+              :attended="attended"
+              @registered="load"
+            />
             <Button :disabled="exporting || !synced" @click="exportExcel"
               ><AppIcon name="download" />{{ exporting ? "Exportando…" : "Exportar Excel" }}</Button
             ><DropdownMenu
@@ -493,7 +543,13 @@ onUnmounted(() => {
           :model-value="status"
           @update:model-value="
             (value) => {
-              if (value === 'all' || value === 'pending' || value === 'attended') status = value;
+              if (
+                value === 'all' ||
+                value === 'pending' ||
+                value === 'attended' ||
+                value === 'unscheduled'
+              )
+                status = value;
             }
           "
           class="report-tabs-root"
@@ -504,6 +560,9 @@ onUnmounted(() => {
                 <Badge variant="secondary">{{ metrics.registered }}</Badge></TabsTrigger
               ><TabsTrigger value="pending"
                 >Pendientes <Badge variant="secondary">{{ metrics.pending }}</Badge></TabsTrigger
+              ><TabsTrigger v-if="scheduled" value="unscheduled"
+                >No convocados
+                <Badge variant="secondary">{{ metrics.unscheduled }}</Badge></TabsTrigger
               ><TabsTrigger value="all"
                 >Todos <Badge variant="secondary">{{ rows.length }}</Badge></TabsTrigger
               ></TabsList
@@ -636,9 +695,16 @@ onUnmounted(() => {
                       }}
                     </TableCell>
                     <TableCell>
-                      <Badge :variant="entry.checked_in_at ? 'success' : 'outline'"
+                      <Badge
+                        :variant="
+                          entry.unscheduled
+                            ? 'secondary'
+                            : entry.checked_in_at
+                              ? 'success'
+                              : 'outline'
+                        "
                         ><AppIcon :name="entry.checked_in_at ? 'check' : 'pending'" />{{
-                          entry.checked_in_at ? "Asistió" : "Pendiente"
+                          reportStatus(entry)
                         }}</Badge
                       >
                     </TableCell>
@@ -651,17 +717,23 @@ onUnmounted(() => {
                           ? "Sin resultados"
                           : status === "pending"
                             ? "No hay empleados pendientes"
-                            : status === "all"
-                              ? "No hay empleados"
-                              : "Aún no hay asistencias"
+                            : status === "unscheduled"
+                              ? "Todos los asistentes están convocados"
+                              : status === "all"
+                                ? "No hay empleados"
+                                : "Aún no hay asistencias"
                       }}</strong>
                       <p>
                         {{
                           hasFilters
                             ? "Prueba con otros filtros."
                             : status === "pending"
-                              ? "Todos los empleados activos tienen asistencia registrada."
-                              : "Comparte el enlace de registro. Las asistencias aparecerán aquí."
+                              ? scheduled
+                                ? "Todos los convocados tienen asistencia registrada."
+                                : "Todos los empleados activos tienen asistencia registrada."
+                              : status === "unscheduled"
+                                ? "Aquí aparecerán quienes se registren sin estar en la lista."
+                                : "Comparte el enlace de registro. Las asistencias aparecerán aquí."
                         }}
                       </p>
                       <div v-if="hasFilters" class="mt-4 flex justify-center">
@@ -670,7 +742,9 @@ onUnmounted(() => {
                         >
                       </div>
                       <div
-                        v-else-if="status !== 'pending' && !attendance.length"
+                        v-else-if="
+                          status !== 'pending' && status !== 'unscheduled' && !attendance.length
+                        "
                         class="mt-4 flex justify-center"
                       >
                         <CopyEventLink :event-id="event.id" />
@@ -712,17 +786,22 @@ onUnmounted(() => {
               </div>
             </div>
             <p class="small muted report-footnote">
-              Los pendientes se calculan con la base activa actual; los datos de asistentes
-              conservan la información del momento de registro.
+              {{
+                scheduled
+                  ? "Los pendientes se calculan con la lista de convocados del evento"
+                  : "Los pendientes se calculan con la base activa actual"
+              }}; los datos de asistentes conservan la información del momento de registro.
             </p>
             <p class="print-meta">
               {{ event.title }} ·
               {{
                 status === "pending"
                   ? "Pendientes"
-                  : status === "attended"
-                    ? "Asistencias"
-                    : "Todos los empleados"
+                  : status === "unscheduled"
+                    ? "No convocados"
+                    : status === "attended"
+                      ? "Asistencias"
+                      : "Todos los empleados"
               }}
               · {{ visible.length }} registros<br />{{ synced?.toLocaleString("es-MX")
               }}<span v-if="search"> · Búsqueda: {{ search }}</span

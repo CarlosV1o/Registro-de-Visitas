@@ -1,4 +1,4 @@
-import { getAttendance, getEmployees, getEvent } from "./api";
+import { getAttendance, getEmployees, getEvent, getRoster } from "./api";
 import { cache } from "./cache";
 
 const pending = new Map<string, Promise<void>>();
@@ -9,20 +9,28 @@ const pending = new Map<string, Promise<void>>();
 export function prefetchEvent(eventId: string) {
   if (pending.has(eventId)) return;
 
-  if (cache.event(eventId) && cache.attendance(eventId) && cache.employees()) return;
+  if (
+    cache.event(eventId) &&
+    cache.attendance(eventId) &&
+    cache.roster(eventId) &&
+    cache.employees()
+  )
+    return;
 
   const generation = cache.generation();
 
   const request = Promise.all([
     getEvent(eventId),
     getAttendance(eventId),
+    getRoster(eventId),
     cache.employees() ?? getEmployees(),
   ])
-    .then(([event, records, employees]) => {
+    .then(([event, records, roster, employees]) => {
       if (generation !== cache.generation()) return;
 
       cache.setEvent(eventId, event);
       cache.setAttendance(eventId, records);
+      cache.setRoster(eventId, roster);
       cache.setEmployees(employees);
     })
     .catch(() => undefined)

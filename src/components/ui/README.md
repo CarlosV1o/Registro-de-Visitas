@@ -4,4 +4,6 @@ Components were generated from the official shadcn-vue registry using style `rek
 
 `shadcn.css` is the unmodified `dist/tailwind.css` from the [shadcn-vue 2.8.2 package](https://www.npmjs.com/package/shadcn-vue/v/2.8.2). It is vendored so that the app does not depend on the CLI and its code-transformation dependencies. The upstream MIT license is in `LICENSE`.
 
+Checkbox and Combobox were copied from the same registry's `reka-luma/checkbox.json` and `reka-luma/combobox.json`, with the registry style import path rewritten to `@/components/ui/` as the CLI does, because the CLI's dependency install step fails under the pinned npm version even though the dependencies are already installed.
+
 Use the shadcn-vue CLI through `npx` to add components. Do not add the CLI to runtime dependencies just to import its CSS.
