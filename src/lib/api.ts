@@ -7,6 +7,7 @@ import {
   roleSchema,
   rosterImportSchema,
   type Employee,
+  type AttendanceEvent,
 } from "./models";
 import { importResponseSchema } from "./csv";
 
@@ -179,7 +180,12 @@ export async function getEvent(eventId: string) {
   return eventSchema.nullable().parse(data);
 }
 
-export const publicEventSchema = eventSchema.pick({ id: true, title: true, is_open: true });
+export const publicEventSchema = eventSchema.pick({
+  id: true,
+  title: true,
+  is_open: true,
+  image_path: true,
+});
 
 export async function getPublicEvent(eventId: string) {
   const { data, error } = await client().rpc("event_info", { target_event: eventId });
@@ -207,4 +213,51 @@ export async function deleteEvent(eventId: string) {
   const { error } = await client().rpc("delete_event", { target_event: eventId });
 
   if (error) throw error;
+}
+
+export async function clearEmployees() {
+  const { error } = await client().rpc("clear_employees");
+
+  if (error) throw error;
+}
+
+export function eventImageUrl(path: string | null) {
+  return path ? client().storage.from("event-images").getPublicUrl(path).data.publicUrl : undefined;
+}
+
+export async function setEventImage(event: AttendanceEvent, file: File | null) {
+  let path: string | null = null;
+
+  if (file) {
+    const extension =
+      file.type === "image/jpeg"
+        ? "jpg"
+        : file.type === "image/png"
+          ? "png"
+          : file.type === "image/webp"
+            ? "webp"
+            : null;
+
+    if (!extension || !file.size || file.size > 5 * 1024 * 1024)
+      throw new Error("Selecciona una imagen JPG, PNG o WebP de hasta 5 MB.");
+
+    path = `${event.id}/${crypto.randomUUID()}.${extension}`;
+    const { error } = await client().storage.from("event-images").upload(path, file);
+
+    if (error) throw new Error("No se pudo subir la imagen. Revisa la conexión y tus permisos.");
+  }
+
+  const { error } = await client()
+    .from("events")
+    .update({ image_path: path })
+    .eq("id", event.id)
+    .select("id")
+    .single();
+
+  if (error) {
+    if (path) await client().storage.from("event-images").remove([path]);
+    throw new Error("No se pudo guardar la imagen del evento. Vuelve a intentarlo.");
+  }
+
+  if (event.image_path) await client().storage.from("event-images").remove([event.image_path]);
 }

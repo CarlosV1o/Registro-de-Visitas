@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ref, watch } from "vue";
-import { deleteEvent, updateEvent } from "../lib/api";
+import { deleteEvent, updateEvent, setEventImage, eventImageUrl } from "../lib/api";
 import { cache } from "../lib/cache";
 import type { AttendanceEvent } from "../lib/models";
 
@@ -84,6 +84,35 @@ async function remove() {
   }
 }
 
+async function changeImage(file: File | null) {
+  if (!props.event || busy.value) return;
+  busy.value = true;
+  error.value = "";
+  message.value = "";
+
+  try {
+    await setEventImage(props.event, file);
+    cache.clear();
+    message.value = file ? "Imagen actualizada." : "Imagen eliminada.";
+    emit("changed");
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "No se pudo actualizar la imagen.";
+  } finally {
+    busy.value = false;
+  }
+}
+
+function selectImage(event: Event) {
+  const input = event.target;
+
+  if (!(input instanceof HTMLInputElement)) return;
+
+  const file = input.files?.[0];
+
+  if (file) void changeImage(file);
+  input.value = "";
+}
+
 function requestConfirmation(action: "close" | "delete") {
   error.value = "";
   confirmation.value = action;
@@ -121,6 +150,34 @@ function confirmAction() {
         >
       </div>
     </form>
+    <section v-if="event" class="mt-6 space-y-3" aria-labelledby="event-image-title">
+      <h3 id="event-image-title">Imagen del evento</h3>
+      <p class="small muted">Aparece en la página de registro. JPG, PNG o WebP, hasta 5 MB.</p>
+      <img
+        v-if="event.image_path"
+        :src="eventImageUrl(event.image_path)"
+        :alt="event.title"
+        class="event-image"
+      />
+      <Label for="event-image">{{ event.image_path ? "Reemplazar imagen" : "Subir imagen" }}</Label>
+      <input
+        class="block w-full rounded-lg border p-2 text-sm"
+        id="event-image"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        :disabled="busy"
+        @change="selectImage"
+      />
+      <p v-if="busy" role="status" class="small muted">Guardando…</p>
+      <Button
+        v-if="event.image_path"
+        variant="outline"
+        type="button"
+        :disabled="busy"
+        @click="changeImage(null)"
+        >Quitar imagen</Button
+      >
+    </section>
     <section v-if="event" class="danger-zone" aria-labelledby="delete-event-title">
       <h3 id="delete-event-title">Eliminar evento</h3>
       <p>

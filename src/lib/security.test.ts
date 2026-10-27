@@ -7,6 +7,7 @@ describe("browser and public API security", () => {
     const policy = securityPolicy("https://project.supabase.co/path");
     expect(policy).toContain("connect-src 'self' https://project.supabase.co;");
     expect(policy).not.toContain("*.supabase.co");
+    expect(policy).toContain("img-src 'self' data: blob: https://project.supabase.co;");
     expect(policy).toContain("script-src 'self'");
     expect(policy).toContain("base-uri 'none'");
     expect(policy).toContain("object-src 'none'");

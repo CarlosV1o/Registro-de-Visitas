@@ -34,6 +34,7 @@ export const eventSchema = z.object({
   title: z.string(),
   is_open: z.boolean(),
   created_at: z.iso.datetime({ offset: true }),
+  image_path: z.string().nullable().default(null),
 });
 
 export type AttendanceEvent = z.infer<typeof eventSchema>;

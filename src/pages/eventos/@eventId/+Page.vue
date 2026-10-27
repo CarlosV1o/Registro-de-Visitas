@@ -12,6 +12,7 @@ import { z } from "zod";
 import { usePageContext } from "vike-vue/usePageContext";
 import {
   checkIn,
+  eventImageUrl,
   getRole,
   getPublicEvent,
   publicCheckIn,
@@ -154,7 +155,13 @@ onUnmounted(() => {
       </div>
       <template v-else-if="event">
         <div class="event-intro" :class="{ 'site-event-intro': operator }">
-          <span v-if="!operator" class="hero-icon"><AppIcon name="calendar" /></span>
+          <img
+            v-if="event.image_path"
+            :src="eventImageUrl(event.image_path)"
+            :alt="event.title"
+            class="event-image mb-5"
+          />
+          <span v-else-if="!operator" class="hero-icon"><AppIcon name="calendar" /></span>
           <p class="eyebrow">{{ operator ? "REGISTRO EN SITIO" : "REGISTRO DE ASISTENCIA" }}</p>
           <h1>{{ event.title }}</h1>
         </div>

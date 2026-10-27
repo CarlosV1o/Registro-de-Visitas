@@ -16,7 +16,7 @@ export function securityPolicy(projectUrl: string | undefined) {
     // Reka positions popovers and dialogs with inline styles; scripts stay external.
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    "img-src 'self' data: blob:",
+    `img-src 'self' data: blob:${origin ? ` ${origin}` : ""}`,
     `connect-src ${connections}`,
     "frame-src 'none'",
     "object-src 'none'",

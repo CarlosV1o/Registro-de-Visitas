@@ -37,6 +37,7 @@ test.afterEach(() => {
 
 async function backend(page: Page, role = "admin", isOpen = true) {
   const calls: string[] = [];
+  let cleared = false;
   const present = new Set<string>();
   const rosters = new Map<string, string[]>();
   const registered: (typeof employee & { active: boolean })[] = [];
@@ -54,7 +55,26 @@ async function backend(page: Page, role = "admin", isOpen = true) {
     calls.push(path);
     let body;
 
-    if (path.endsWith("/token"))
+    if (path.startsWith("/storage/v1/object/public/event-images/")) {
+      await route.fulfill({
+        contentType: "image/png",
+        body: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+          "base64",
+        ),
+      });
+
+      return;
+    } else if (path.startsWith("/storage/v1/object/event-images"))
+      body = { Key: path.replace("/storage/v1/object/", "") };
+    else if (path.endsWith("/clear_employees")) {
+      cleared = true;
+      present.clear();
+      registered.length = 0;
+      manual.clear();
+      rosters.clear();
+      body = null;
+    } else if (path.endsWith("/token"))
       body = {
         access_token: "browser-test-token",
         refresh_token: "test-refresh",
@@ -150,7 +170,9 @@ async function backend(page: Page, role = "admin", isOpen = true) {
         );
 
         if (event) Object.assign(event, request.postDataJSON());
-        await route.fulfill({ status: 204 });
+
+        if (url.searchParams.has("select")) await route.fulfill({ json: { id: event?.id } });
+        else await route.fulfill({ status: 204 });
 
         return;
       } else
@@ -163,7 +185,9 @@ async function backend(page: Page, role = "admin", isOpen = true) {
         ? url.searchParams.get("id") === `eq.${employee.id}`
           ? { id: employee.id, nombre: employee.nombre }
           : null
-        : [{ ...employee, active: true }, ...registered];
+        : cleared
+          ? []
+          : [{ ...employee, active: true }, ...registered];
     else if (path.endsWith("/attendance")) {
       const target = url.searchParams.get("event_id")?.replace("eq.", "") ?? "";
       body = [...(present.has(target) ? [employee] : []), ...(manual.get(target) ?? [])].map(
@@ -1016,4 +1040,85 @@ test("on-site registration welcomes the employee in one action without confirmat
   await page.setViewportSize({ width: 375, height: 812 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/on-site-welcome-mobile.png", fullPage: true });
+});
+
+test("employee clear requires confirmation, ignores filters and reports errors", async ({
+  page,
+}) => {
+  const calls = await backend(page);
+  await login(page, "admin/empleados");
+  await expect(page.getByText(employee.nombre, { exact: true })).toBeVisible();
+  await page.getByLabel("Buscar en el directorio").fill("no match");
+  await page.getByRole("button", { name: "Borrar todos los empleados" }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("todas las asistencias");
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  expect(calls.filter((path) => path.endsWith("/clear_employees"))).toHaveLength(0);
+  await page.getByRole("button", { name: "Borrar todos los empleados" }).click();
+  await page.route("**/rpc/clear_employees", (route) =>
+    route.fulfill({ status: 403, json: { message: "Denied" } }),
+  );
+  await page.getByRole("button", { name: "Borrar todos los datos", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("No se pudieron borrar");
+  await page.unroute("**/rpc/clear_employees");
+  await page.getByRole("button", { name: "Borrar todos los datos", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.getByText("Tu directorio está vacío", { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("Tu directorio está vacío", { exact: true })).toBeVisible();
+});
+
+test("event images validate uploads, display only on their event and can be replaced or removed", async ({
+  page,
+}) => {
+  const calls = await backend(page);
+  await login(page, `admin/eventos/${eventId}/configuracion`);
+  const upload = page.locator("#event-image");
+  await upload.setInputFiles({
+    name: "invalid.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from("<svg/>"),
+  });
+  await expect(page.getByRole("alert")).toContainText("JPG, PNG o WebP");
+  await upload.setInputFiles({
+    name: "large.png",
+    mimeType: "image/png",
+    buffer: Buffer.alloc(5 * 1024 * 1024 + 1),
+  });
+  await expect(page.getByRole("alert")).toContainText("hasta 5 MB");
+  expect(calls.filter((path) => path.startsWith("/storage/"))).toHaveLength(0);
+
+  const image = {
+    name: "event.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  };
+
+  await upload.setInputFiles(image);
+  await expect(page.getByText("Imagen actualizada.", { exact: true })).toBeVisible();
+  const preview = page.locator(".settings-panel img");
+  await expect(preview).toBeVisible();
+  const first = await preview.getAttribute("src");
+  await upload.setInputFiles(image);
+  await expect(preview).not.toHaveAttribute("src", first!);
+  await page.getByRole("link", { name: "Abrir registro", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/eventos/${eventId}$`));
+  await expect(page.locator(".registration-layout .event-image")).toBeVisible();
+  expect(
+    await page
+      .locator(".registration-layout .event-image")
+      .evaluate((img) => img instanceof HTMLImageElement && img.naturalWidth > 0),
+  ).toBe(true);
+  await page.goto(`${base}eventos/${secondId}`);
+  await expect(page.getByRole("heading", { name: "Capacitación de noviembre" })).toBeVisible();
+  await expect(page.locator(".event-image")).toHaveCount(0);
+  await page.goto(`${base}admin/eventos/${eventId}/configuracion`);
+  await page.getByRole("button", { name: "Quitar imagen", exact: true }).click();
+  await expect(page.getByText("Imagen eliminada.", { exact: true })).toBeVisible();
+  await expect(page.locator(".event-image")).toHaveCount(0);
+  await page.goto(`${base}eventos/${eventId}`);
+  await expect(page.getByRole("heading", { name: "Reunión del equipo" })).toBeVisible();
+  await expect(page.locator(".event-image")).toHaveCount(0);
 });

@@ -7,6 +7,7 @@ const event = {
   id: "11111111-1111-4111-8111-111111111111",
   title: "Reunión",
   is_open: true,
+  image_path: null,
   created_at: "2026-10-26T12:00:00Z",
 };
 

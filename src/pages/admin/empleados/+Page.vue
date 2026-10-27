@@ -1,5 +1,14 @@
 <script setup lang="ts">
 import DataPagination from "@/components/DataPagination.vue";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Card } from "@/components/ui/card";
 import AppNotice from "@/components/AppNotice.vue";
 import { computed, onUnmounted, ref, watch } from "vue";
@@ -32,7 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { downloadCsv, employeeCsv } from "../../../lib/csv";
 import EmployeeImport from "../../../components/EmployeeImport.vue";
-import { getEmployees } from "../../../lib/api";
+import { clearEmployees, getEmployees } from "../../../lib/api";
 import AppIcon from "../../../components/AppIcon.vue";
 import { normalizeSearch } from "../../../lib/reports";
 import type { Employee } from "../../../lib/models";
@@ -45,6 +54,33 @@ const search = ref("");
 const status = ref("all");
 const importOpen = ref(false);
 const page = ref(1);
+const clearOpen = ref(false);
+const clearing = ref(false);
+const clearError = ref("");
+const message = ref("");
+
+async function removeEmployees() {
+  if (clearing.value) return;
+  clearing.value = true;
+  clearError.value = "";
+  message.value = "";
+
+  try {
+    await clearEmployees();
+    cache.clear();
+    cache.setEmployees([]);
+    employees.value = [];
+    clearFilters();
+    error.value = "";
+    clearOpen.value = false;
+    message.value = "Se borraron los empleados, las asistencias y las listas de convocados.";
+  } catch {
+    clearError.value = "No se pudieron borrar los datos. Revisa la conexión y tus permisos.";
+  } finally {
+    clearing.value = false;
+  }
+}
+
 const active = computed(() => employees.value.filter((employee) => employee.active).length);
 
 const visible = computed(() =>
@@ -93,7 +129,10 @@ async function load() {
   loading.value = cache.employees() === undefined;
 
   try {
+    const request = cache.generation();
     const result = await getEmployees();
+
+    if (request !== cache.generation()) return;
     cache.setEmployees(result);
 
     if (mounted) employees.value = result;
@@ -119,9 +158,22 @@ onUnmounted(() => {
             La base de empleados que pueden registrar su asistencia en tus eventos.
           </p>
         </div>
-        <DialogTrigger as-child
-          ><Button><AppIcon name="upload" /> Importar CSV</Button></DialogTrigger
-        >
+        <div class="actions">
+          <Button
+            variant="destructive"
+            :disabled="loading || clearing || !employees.length"
+            @click="
+              clearError = '';
+              clearOpen = true;
+            "
+            >Borrar todos los empleados</Button
+          >
+          <DialogTrigger as-child
+            ><Button :disabled="clearing"
+              ><AppIcon name="upload" /> Importar CSV</Button
+            ></DialogTrigger
+          >
+        </div>
       </div>
       <AppNotice v-if="error" kind="error">
         {{ error }}
@@ -129,6 +181,34 @@ onUnmounted(() => {
           >Volver a intentar</Button
         >
       </AppNotice>
+      <AppNotice v-if="message" kind="success">{{ message }}</AppNotice>
+      <AlertDialog
+        :open="clearOpen"
+        @update:open="
+          (open) => {
+            if (!clearing) clearOpen = open;
+          }
+        "
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Borrar todos los datos de empleados?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borrarán todos los empleados, incluidos los que no aparecen por los filtros, todas
+              las asistencias y las listas de convocados de todos los eventos. Los eventos y sus
+              imágenes se conservarán. Esta acción no se puede deshacer. Exporta los datos que
+              necesites antes de continuar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AppNotice v-if="clearError" kind="error">{{ clearError }}</AppNotice>
+          <AlertDialogFooter>
+            <AlertDialogCancel :disabled="clearing">Cancelar</AlertDialogCancel>
+            <Button variant="destructive" :disabled="clearing" @click="removeEmployees">
+              {{ clearing ? "Borrando…" : "Borrar todos los datos" }}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <DialogContent class="employee-import-dialog"
         ><DialogHeader
           ><DialogTitle>Importar empleados</DialogTitle

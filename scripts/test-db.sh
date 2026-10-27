@@ -15,6 +15,16 @@ export PGHOST="$test_cluster" PGPORT=55439 PGDATABASE=postgres
 psql -X -v ON_ERROR_STOP=1 -q <<'SQL'
 create role anon;
 create role authenticated;
+create schema storage;
+create table storage.buckets (
+  id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]
+);
+create table storage.objects (
+  id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets(id), name text not null
+);
+alter table storage.objects enable row level security;
+grant usage on schema storage to anon, authenticated;
+grant select, insert, delete on storage.objects to anon, authenticated;
 create schema auth;
 create table auth.users (id uuid primary key);
 create function auth.uid() returns uuid language sql stable as $$
@@ -34,6 +44,8 @@ psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260005_event_roster.s
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-event-roster.sql
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260006_manual_attendance.sql
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-manual-attendance.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260007_employee_clear_event_images.sql
+psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-employee-clear-images.sql
 
 # Both callers must observe the same row, with exactly one insert winning.
 for caller in 1 2; do
