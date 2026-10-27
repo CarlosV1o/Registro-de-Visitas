@@ -19,7 +19,7 @@ El informe incluye empleados activos, asistencias, pendientes y porcentaje de la
 
 En Empleados, «Borrar todos los empleados» pide confirmación y borra la base completa, todas las asistencias y las listas de convocados, incluidos los datos ocultos por filtros. Conserva los eventos y sus imágenes. Exporta antes los datos que necesites; la operación no se puede deshacer y solo la puede ejecutar un administrador.
 
-En Configuración de cada evento, «Subir imagen» permite agregar, reemplazar o quitar una imagen JPG, PNG o WebP de hasta 5 MB. La imagen aparece en su registro público y en su informe administrativo. Se almacena en el bucket público `event-images`; solo administradores pueden subirla o eliminarla. Ejecuta las migraciones `202610260007_employee_clear_event_images.sql` y `202610260008_employee_clear_safeupdate.sql` para habilitar ambas funciones con la protección de borrado de Supabase.
+En Configuración de cada evento, «Subir imagen» permite agregar, reemplazar o quitar una imagen JPG, PNG o WebP de hasta 5 MB. La imagen cubre el fondo de su página de registro, con una capa clara para mantener legibles el título y el formulario. Se almacena en el bucket público `event-images`; solo administradores pueden subirla o eliminarla. Ejecuta las migraciones `202610260007_employee_clear_event_images.sql` y `202610260008_employee_clear_safeupdate.sql` para habilitar ambas funciones con la protección de borrado de Supabase.
 
 La base de empleados es compartida entre eventos. La asistencia se guarda por evento con una copia de los datos del empleado al registrarse, de modo que las importaciones posteriores no cambian el historial. Un empleado puede registrarse en varios eventos, una sola vez en cada uno.
 

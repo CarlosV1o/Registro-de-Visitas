@@ -59,7 +59,7 @@ async function backend(page: Page, role = "admin", isOpen = true) {
       await route.fulfill({
         contentType: "image/png",
         body: Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPQylsAAAH+ATkebOqYAAAAAElFTkSuQmCC",
           "base64",
         ),
       });
@@ -1067,7 +1067,7 @@ test("employee clear requires confirmation, ignores filters and reports errors",
   await expect(page.getByText("Tu directorio está vacío", { exact: true })).toBeVisible();
 });
 
-test("event images validate uploads, display only on their event and can be replaced or removed", async ({
+test("event backgrounds validate uploads, cover only their event page and can be replaced or removed", async ({
   page,
 }) => {
   const calls = await backend(page);
@@ -1091,7 +1091,7 @@ test("event images validate uploads, display only on their event and can be repl
     name: "event.png",
     mimeType: "image/png",
     buffer: Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPQylsAAAH+ATkebOqYAAAAAElFTkSuQmCC",
       "base64",
     ),
   };
@@ -1105,20 +1105,31 @@ test("event images validate uploads, display only on their event and can be repl
   await expect(preview).not.toHaveAttribute("src", first!);
   await page.getByRole("link", { name: "Abrir registro", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/eventos/${eventId}$`));
-  await expect(page.locator(".registration-layout .event-image")).toBeVisible();
+  const background = page.locator(".event-background");
+  await expect(background).toBeVisible();
+  await expect(background).toHaveCSS("object-fit", "cover");
+  await expect(background).toHaveCSS("position", "absolute");
+  await expect(page.locator(".registration-layout img")).toHaveCount(0);
   expect(
     await page
-      .locator(".registration-layout .event-image")
+      .locator(".event-background")
       .evaluate((img) => img instanceof HTMLImageElement && img.naturalWidth > 0),
   ).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(background).toHaveJSProperty("naturalWidth", 1);
+  const bounds = await background.boundingBox();
+  expect(bounds?.width).toBe(390);
+  expect(bounds?.height).toBeGreaterThanOrEqual(844);
+  await page.screenshot({ path: "test-results/event-background-mobile.png", fullPage: true });
   await page.goto(`${base}eventos/${secondId}`);
   await expect(page.getByRole("heading", { name: "Capacitación de noviembre" })).toBeVisible();
-  await expect(page.locator(".event-image")).toHaveCount(0);
+  await expect(page.locator(".event-background")).toHaveCount(0);
   await page.goto(`${base}admin/eventos/${eventId}/configuracion`);
   await page.getByRole("button", { name: "Quitar imagen", exact: true }).click();
   await expect(page.getByText("Imagen eliminada.", { exact: true })).toBeVisible();
-  await expect(page.locator(".event-image")).toHaveCount(0);
+  await expect(page.locator(".settings-panel img")).toHaveCount(0);
+  await expect(page.locator(".event-background")).toHaveCount(0);
   await page.goto(`${base}eventos/${eventId}`);
   await expect(page.getByRole("heading", { name: "Reunión del equipo" })).toBeVisible();
-  await expect(page.locator(".event-image")).toHaveCount(0);
+  await expect(page.locator(".event-background")).toHaveCount(0);
 });

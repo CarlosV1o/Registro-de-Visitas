@@ -152,7 +152,9 @@ function confirmAction() {
     </form>
     <section v-if="event" class="mt-6 space-y-3" aria-labelledby="event-image-title">
       <h3 id="event-image-title">Imagen del evento</h3>
-      <p class="small muted">Aparece en la página de registro. JPG, PNG o WebP, hasta 5 MB.</p>
+      <p class="small muted">
+        Se usa como fondo de la página de registro. JPG, PNG o WebP, hasta 5 MB.
+      </p>
       <img
         v-if="event.image_path"
         :src="eventImageUrl(event.image_path)"

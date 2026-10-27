@@ -7,7 +7,7 @@ import AppNotice from "@/components/AppNotice.vue";
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { z } from "zod";
 import { navigate } from "vike/client/router";
-import { getAttendance, getEmployees, getEvent, getRoster, eventImageUrl } from "../lib/api";
+import { getAttendance, getEmployees, getEvent, getRoster } from "../lib/api";
 import { cache } from "../lib/cache";
 import { pendingPrefetch } from "../lib/prefetch";
 import { attendanceCsv, downloadCsv, makeCsv } from "../lib/csv";
@@ -383,12 +383,6 @@ onUnmounted(() => {
         ></Button>
       </div>
     </div>
-    <img
-      v-if="event.image_path"
-      :src="eventImageUrl(event.image_path)"
-      :alt="event.title"
-      class="event-image mb-5"
-    />
     <div class="event-nav-row">
       <NavigationMenu aria-label="Secciones del evento" class="event-navigation" :viewport="false"
         ><NavigationMenuList class="flex-wrap justify-start"
