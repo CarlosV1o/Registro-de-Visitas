@@ -45,6 +45,7 @@ psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-event-roster.sql
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260006_manual_attendance.sql
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-manual-attendance.sql
 psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260007_employee_clear_event_images.sql
+psql -X -v ON_ERROR_STOP=1 -q -f supabase/migrations/202610260008_employee_clear_safeupdate.sql
 psql -X -v ON_ERROR_STOP=1 -q -f scripts/test-employee-clear-images.sql
 
 # Both callers must observe the same row, with exactly one insert winning.
